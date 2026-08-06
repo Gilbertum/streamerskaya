@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мой Стрим-Хаб</title>
+    <!-- Подключаем Tailwind для дизайна -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Подключаем Vue 3 для интерактивности -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Настраиваем фирменный цвет (фиолетовый/стримерский) -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: '#a855f7', // Фиолетовый цвет для кнопок и акцентов
+                        dark: '#0f172a',
+                        card: '#1e293b'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Плавные переходы для картинок */
+        .hover-scale { transition: transform 0.2s; }
+        .hover-scale:hover { transform: scale(1.02); }
+    </style>
+</head>
+<body class="bg-dark text-gray-200 min-h-screen font-sans">
+    <div id="app" class="max-w-5xl mx-auto px-4 py-8">
+        
+        <!-- Навигация (Меню) -->
+        <nav class="flex flex-wrap justify-center gap-4 mb-12 bg-card p-4 rounded-2xl shadow-lg">
+            <button v-for="tab in tabs" :key="tab.id" 
+                    @click="currentTab = tab.id"
+                    :class="['px-4 py-2 rounded-xl font-semibold transition-colors', 
+                             currentTab === tab.id ? 'bg-brand text-white' : 'hover:bg-gray-700 text-gray-400']">
+                {{ tab.name }}
+            </button>
+        </nav>
+
+        <!-- СТРАНИЦА: Главная / Ссылки -->
+        <div v-if="currentTab === 'links'" class="text-center animate-fade-in">
+            <img src="https://placehold.co/150x150/a855f7/ffffff?text=Avatar" alt="Аватар" class="w-32 h-32 mx-auto rounded-full border-4 border-brand shadow-xl mb-6">
+            <h1 class="text-3xl font-bold text-white mb-2">Привет, я Стример! 🎮</h1>
+            <p class="text-gray-400 mb-8">Добро пожаловать в мой хаб. Здесь все самое важное.</p>
+            
+            <div class="flex flex-col gap-4 max-w-md mx-auto">
+                <a v-for="link in links" :key="link.name" :href="link.url" target="_blank"
+                   class="bg-card hover:bg-brand text-white py-4 px-6 rounded-2xl text-lg font-bold shadow-md transition-all hover-scale flex justify-center items-center gap-2">
+                   {{ link.icon }} {{ link.name }}
+                </a>
+            </div>
+        </div>
+
+        <!-- СТРАНИЦА: Игры -->
+        <div v-if="currentTab === 'games'" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div v-for="game in games" :key="game.title" class="bg-card rounded-2xl p-6 shadow-lg border border-gray-800">
+                <h2 class="text-2xl font-bold text-white mb-2">{{ game.title }}</h2>
+                <div class="flex gap-2 text-yellow-400 mb-4">
+                    <span v-for="star in game.rating" :key="star">⭐</span>
+                </div>
+                <p class="text-gray-300 mb-4 italic">"{{ game.comment }}"</p>
+                
+                <div class="bg-dark p-4 rounded-xl text-sm text-gray-400 space-y-2 mb-4">
+                    <p>⏱ Потрачено часов: <span class="text-white font-bold">{{ game.hours }}</span></p>
+                    <p>👥 Играли с: <span class="text-brand">{{ game.buddies.join(', ') }}</span></p>
+                </div>
+                
+                <div class="flex gap-3">
+                    <a v-if="game.twitch" :href="game.twitch" target="_blank" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition">Twitch Клип</a>
+                    <a v-if="game.youtube" :href="game.youtube" target="_blank" class="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition">YouTube Видео</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- СТРАНИЦА: Кино и Сериалы -->
+        <div v-if="currentTab === 'movies'" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div v-for="movie in movies" :key="movie.title" class="bg-card rounded-2xl overflow-hidden shadow-lg border border-gray-800">
+                <img :src="movie.poster" :alt="movie.title" class="w-full h-64 object-cover">
+                <div class="p-5">
+                    <h2 class="text-xl font-bold text-white mb-1">{{ movie.title }}</h2>
+                    <p class="text-brand text-sm mb-3">Оценка: {{ movie.rating }}/10</p>
+                    <p class="text-gray-300 text-sm">{{ movie.review }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- СТРАНИЦА: Гардероб -->
+        <div v-if="currentTab === 'wardrobe'">
+            <h2 class="text-2xl font-bold text-center text-white mb-8">Мои образы ✨</h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div v-for="outfit in wardrobe" :key="outfit.name" class="relative group cursor-pointer hover-scale">
+                    <img :src="outfit.img" :alt="outfit.name" class="w-full h-80 object-cover rounded-xl shadow-lg border-2 border-transparent group-hover:border-brand transition">
+                    <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-center py-2 rounded-b-xl opacity-0 group-hover:opacity-100 transition">
+                        <span class="text-white font-semibold">{{ outfit.name }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- СТРАНИЦА: Баннеры -->
+        <div v-if="currentTab === 'banners'" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div v-for="banner in banners" :key="banner.id" class="bg-card p-2 rounded-2xl hover-scale">
+                <img :src="banner.img" alt="Промо баннер" class="w-full h-auto rounded-xl">
+            </div>
+        </div>
+
+        <!-- СТРАНИЦА: Благодарности -->
+        <div v-if="currentTab === 'thanks'" class="bg-card rounded-2xl p-8 max-w-2xl mx-auto shadow-lg text-center border border-gray-800">
+            <h2 class="text-3xl font-bold text-white mb-6">Зал Славы 🏆</h2>
+            <p class="text-gray-300 mb-8">Огромное спасибо этим чудесным людям за поддержку канала!</p>
+            
+            <div class="space-y-6 text-left">
+                <div>
+                    <h3 class="text-xl font-bold text-brand border-b border-gray-700 pb-2 mb-3">Топ Донатеры</h3>
+                    <ul class="list-disc list-inside text-gray-300">
+                        <li>@SuperFan - Самый щедрый зритель</li>
+                        <li>@GamerPro - Поддержка на новый микрофон</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="text-xl font-bold text-brand border-b border-gray-700 pb-2 mb-3">Любимые Модераторы</h3>
+                    <ul class="list-disc list-inside text-gray-300">
+                        <li>@ModMaster</li>
+                        <li>@BanHammer</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="text-xl font-bold text-brand border-b border-gray-700 pb-2 mb-3">Художники (Арт & Эмодзи)</h3>
+                    <ul class="list-disc list-inside text-gray-300">
+                        <li>@ArtGuru - Создатель основной модельки</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Логика и Данные сайта -->
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    // Текущая открытая вкладка при загрузке
+                    currentTab: 'links', 
+                    
+                    // Названия вкладок в меню
+                    tabs: [
+                        { id: 'links', name: '📱 Ссылки' },
+                        { id: 'games', name: '🎮 Игры' },
+                        { id: 'movies', name: '🍿 Кино' },
+                        { id: 'wardrobe', name: '👗 Гардероб' },
+                        { id: 'banners', name: '🖼 Баннеры' },
+                        { id: 'thanks', name: '❤️ Благодарности' }
+                    ],
+
+                    // ДАННЫЕ ДЛЯ РЕДАКТИРОВАНИЯ (Заполняй своими!)
+                    links: [
+                        { name: 'Telegram', url: '#', icon: '✈️' },
+                        { name: 'Twitch', url: '#', icon: '🟪' },
+                        { name: 'YouTube', url: '#', icon: '🟥' },
+                        { name: 'Discord', url: '#', icon: '👾' },
+                        { name: 'TikTok', url: '#', icon: '📱' }
+                    ],
+
+                    games: [
+                        {
+                            title: 'The Witcher 3: Wild Hunt',
+                            rating: 5, // от 1 до 5
+                            comment: 'Просто шедевр! Обожаю квесты, но Плотва постоянно застревала в текстурах.',
+                            hours: 120,
+                            buddies: ['@chatik', '@friend1'],
+                            twitch: 'https://twitch.tv/',
+                            youtube: 'https://youtube.com/'
+                        },
+                        {
+                            title: 'It Takes Two',
+                            rating: 5,
+                            comment: 'Лучший кооп эвер, порвали животы от смеха на стриме.',
+                            hours: 15,
+                            buddies: ['@CoopPartner'],
+                            twitch: 'https://twitch.tv/',
+                            youtube: null
+                        }
+                    ],
+
+                    movies: [
+                        {
+                            title: 'Аркейн',
+                            rating: 10,
+                            review: 'Визуальный восторг. Даже если не играли в Лигу Легенд, смотреть обязательно!',
+                            poster: 'https://placehold.co/400x600/1e293b/ffffff?text=Arcane' // Замени на ссылку с картинкой
+                        },
+                        {
+                            title: 'Интерстеллар',
+                            rating: 9,
+                            review: 'Плакали всем чатом на моменте с сообщениями за 23 года.',
+                            poster: 'https://placehold.co/400x600/1e293b/ffffff?text=Interstellar'
+                        }
+                    ],
+
+                    wardrobe: [
+                        { name: 'Базовый', img: 'https://placehold.co/300x500/3b82f6/ffffff?text=Casual' },
+                        { name: 'Хеллоуин', img: 'https://placehold.co/300x500/f97316/ffffff?text=Spooky' },
+                        { name: 'Киберпанк', img: 'https://placehold.co/300x500/eab308/ffffff?text=Cyber' },
+                        { name: 'Сонный', img: 'https://placehold.co/300x500/ec4899/ffffff?text=Sleepy' }
+                    ],
+
+                    banners: [
+                        { id: 1, img: 'https://placehold.co/800x400/8b5cf6/ffffff?text=Стрим+Анонс+1' },
+                        { id: 2, img: 'https://placehold.co/800x400/0ea5e9/ffffff?text=Марафон+Игр' }
+                    ]
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
