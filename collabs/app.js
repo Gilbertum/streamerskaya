@@ -264,16 +264,18 @@ function eventModal(id) {
     '<div class="form-actions full">' + (item ? '<button type="button" class="button button-subtle" data-action="delete-event" data-id="' + h(id) + '">Удалить</button>' : "") +
     '<button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Сохранить</button></div></form>');
 }
-function inviteModal(uid) {
+function inviteModal(uid, replacesId = "") {
   const member = person(uid);
+  const previous = replacesId ? state.locks.find((x) => x.id === replacesId) : null;
+  if (replacesId && !previous) { flashMessage("Исходная коллаба не найдена.", true); return; }
   if (!member) return;
-  modalOpen('<h2 id="modalTitle">Пригласить ' + h(member.nick) + '</h2><p class="muted">Отправь предложение. После принятия обе участницы увидят коллаб в календаре.</p>' +
+  modalOpen('<h2 id="modalTitle">' + (replacesId ? "Предложить перенос: " : "Пригласить ") + h(member.nick) + '</h2><p class="muted">' + (replacesId ? "Старый подтверждённый коллаб сохранится до принятия новых даты и времени второй стороной." : "Отправь предложение. После принятия обе участницы увидят коллаб в календаре.") + '</p>' +
     '<div class="links" style="margin:12px 0 20px">' + profileLinks(member) + '</div>' +
-    '<form data-form="invite" data-uid="' + h(uid) + '" class="form-grid">' +
-    '<div class="field full"><label>Игра или формат</label><input name="game" maxlength="90" required value="' + h(state.search.game) + '"></div>' +
-    '<div class="field"><label>Дата</label><input type="date" name="date" required value="' + h(state.search.date) + '"></div>' +
-    '<div class="field"><label>Начало, МСК</label><input type="time" name="start" required value="' + h(state.search.start) + '"></div>' +
-    '<div class="field"><label>Конец, МСК</label><input type="time" name="end" required value="' + h(state.search.end) + '"></div>' +
+    '<form data-form="invite" data-uid="' + h(uid) + '" data-replaces="' + h(replacesId) + '" class="form-grid">' +
+    '<div class="field full"><label>Игра или формат</label><input name="game" maxlength="90" required value="' + h(previous?.game || state.search.game) + '"></div>' +
+    '<div class="field"><label>Дата</label><input type="date" name="date" required value="' + h(previous ? addDays(previous.date, 1) : state.search.date) + '"></div>' +
+    '<div class="field"><label>Начало, МСК</label><input type="time" name="start" required value="' + h(previous?.start || state.search.start) + '"></div>' +
+    '<div class="field"><label>Конец, МСК</label><input type="time" name="end" required value="' + h(previous?.end || state.search.end) + '"></div>' +
     '<div class="field full"><label>Сообщение (необязательно)</label><textarea name="message" maxlength="500" placeholder="Давай попробуем пройти эту игру вместе?"></textarea></div>' +
     '<div class="form-actions full"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Отправить приглашение</button></div></form>');
 }
@@ -347,21 +349,29 @@ async function sendInvite(form) {
   const game = String(data.game || "").trim().slice(0, 90);
   if (!game) throw new Error("Укажи игру или формат.");
   const request = { date: data.date, start: data.start, end: data.end };
-  if (availability(uid, request) === "busy") throw new Error("Это окно уже занято. Выбери другое время.");
-  if (availability(state.uid, request) === "busy") throw new Error("В твоём расписании уже занято это время.");
+  const replacesId = form.dataset.replaces || "";
+  if (replacesId && !state.locks.some((x) => x.id === replacesId && [x.fromUid, x.toUid].includes(uid) && [x.fromUid, x.toUid].includes(state.uid))) throw new Error("Старая коллаба уже неактуальна.");
+  if (availability(uid, request, replacesId) === "busy") throw new Error("Это окно уже занято. Выбери другое время.");
+  if (availability(state.uid, request, replacesId) === "busy") throw new Error("В твоём расписании уже занято это время.");
   const exists = proposals().some((p) => p.fromUid === state.uid && p.toUid === uid && p.status === "pending" && p.date === data.date && overlaps(p, request));
   if (exists) throw new Error("Похожее приглашение уже ожидает ответа.");
-  await addDoc(collection(db, "proposals"), {
-    fromUid: state.uid, toUid: uid, fromName: state.nick, toName: member.nick,
-    date: data.date, start: data.start, end: data.end, game,
+  const proposalRef = doc(collection(db, "proposals"));
+  const preview = { fromUid: state.uid, toUid: uid, fromName: state.nick, toName: member.nick,
+    date: data.date, start: data.start, end: data.end, game };
+  const batch = writeBatch(db);
+  batch.set(proposalRef, { ...preview, replacesId,
     message: String(data.message || "").trim().slice(0, 500),
     status: "pending", createdAt: serverTimestamp(), respondedAt: null
   });
+  for (const ownerUid of [state.uid, uid]) {
+    batch.set(doc(db, "moderatorPending", ownerUid, "items", proposalRef.id), preview);
+  }
+  await batch.commit();
   modalClose();
   state.tab = "inbox";
   state.inboxFilter = "all";
   render();
-  flashMessage("Приглашение отправлено " + member.nick + ".");
+  flashMessage(replacesId ? "Предложение переноса отправлено. Старая коллаба останется в силе до согласия." : "Приглашение отправлено " + member.nick + ".");
 }
 async function respond(id, answer) {
   const p = proposals().find((entry) => entry.id === id);
