@@ -119,6 +119,11 @@ export async function finalizeGroupWish(db,group,uid,index){
   const participants=groupParticipants(group);
   const batch=writeBatch(db);
   batch.update(doc(db,"groupWishes",group.id),{status:"confirmed",chosenIndex:index,updatedAt:serverTimestamp()});
+  batch.set(doc(db,"groupCalendar",group.id),{
+    organizerUid:group.organizerUid, participantsUids:participants,
+    participants: [group.organizerName,...(group.inviteeNames||[])],
+    game:group.game,date:chosen.date,start:chosen.start,end:chosen.end
+  });
   for(const ownerUid of participants){
     batch.update(doc(db,"groupDiary",ownerUid,"items",group.id),{
       status:"confirmed",date:chosen.date,start:chosen.start,end:chosen.end
@@ -134,6 +139,7 @@ export async function cancelGroupWish(db,group,uid){
   if(group.status==="cancelled"||!groupParticipants(group).includes(uid))throw new Error("Нет прав или коллаба уже отменена.");
   const batch=writeBatch(db);
   batch.update(doc(db,"groupWishes",group.id),{status:"cancelled",updatedAt:serverTimestamp()});
+  if(group.status==="confirmed")batch.delete(doc(db,"groupCalendar",group.id));
   for(const ownerUid of groupParticipants(group)){
     batch.delete(doc(db,"groupDiary",ownerUid,"items",group.id));
     if(group.status==="confirmed")batch.delete(doc(db,"publicGroupCollabs",ownerUid,"items",group.id));
