@@ -30,6 +30,7 @@ export function participants(members) {
   }
   return [...byLogin.values()].sort((a, b) => a.nick.localeCompare(b.nick, "ru"));
 }
+export function twitchProfile(login) { return login ? items.get(login) || null : null; }
 export function twitchEnabled() { return typeof twitchClientId === "string" && /^[a-z0-9]{12,40}$/i.test(twitchClientId.trim()); }
 function access() {
   try {
@@ -44,6 +45,9 @@ export function startTwitchAuthorization() {
   const bytes = crypto.getRandomValues(new Uint8Array(24));
   const state = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   sessionStorage.setItem(STATE_KEY, state);
+  // Some privacy modes discard sessionStorage during external OAuth redirects.
+  // Keep only a short-lived, one-time CSRF state backup (never the access token).
+  try { localStorage.setItem("collab-room-twitch-state-backup-v2", JSON.stringify({ state, createdAt: Date.now() })); } catch {}
   const url = new URL("https://id.twitch.tv/oauth2/authorize");
   url.searchParams.set("response_type", "token");
   url.searchParams.set("client_id", twitchClientId);

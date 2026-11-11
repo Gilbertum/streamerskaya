@@ -1,25 +1,47 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Twitch — подключение к Collab Room</title><meta name="referrer" content="no-referrer">
-<style>body{background:#14151c;color:#eeeef5;font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;padding:24px}.card{max-width:430px;background:#20212c;border:1px solid #50505b;border-radius:20px;padding:28px;text-align:center}a{color:#ef9dab}</style></head>
-<body><div class="card"><h1>Подключаем Twitch…</h1><p id="message">Проверяем ответ Twitch.</p><p><a href="./">Вернуться в Collab Room</a></p></div>
+<style>body{background:#14151c;color:#eeeef5;font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;padding:24px}.card{max-width:530px;background:#20212c;border:1px solid #50505b;border-radius:20px;padding:28px;text-align:center}a{color:#ef9dab}small{color:#aeabba;display:block;margin-top:14px}</style></head>
+<body><div class="card"><h1>Подключение Twitch</h1><p id="message">Проверяем ответ Twitch.</p><small id="reason"></small><p><a href="./">Вернуться в Collab Room</a></p></div>
 <script type="module">
 import { twitchClientId } from "./firebase-config.js";
-const message = document.getElementById("message");
-const params = new URLSearchParams(location.hash.slice(1));
-const state = sessionStorage.getItem("collab-room-twitch-state-v1");
-const token = params.get("access_token");
-const expires = Number(params.get("expires_in") || 0);
-const valid = !!state && params.get("state") === state && !!token && expires > 60;
+const message = document.getElementById("message"), reason = document.getElementById("reason");
+const hash = new URLSearchParams(location.hash.slice(1));
+const query = new URLSearchParams(location.search);
+const result = hash.has("access_token") || hash.has("error") ? hash : query;
+// Scrub access token from browser URL immediately. Do not store it in history or logs.
 history.replaceState(null, "", location.pathname);
-sessionStorage.removeItem("collab-room-twitch-state-v1");
-if (valid) {
-  sessionStorage.setItem("collab-room-twitch-session-v1", JSON.stringify({
-    token, clientId: twitchClientId, expiresAt: Date.now() + Math.min(expires, 86400 * 60) * 1000
-  }));
-  message.textContent = "Twitch подключён. Возвращаемся в календарь.";
-  location.replace("./");
+const KEY = "collab-room-twitch-state-v1";
+const BACKUP_KEY = "collab-room-twitch-state-backup-v2";
+const fromSession = sessionStorage.getItem(KEY);
+let fromBackup = null;
+try { fromBackup = JSON.parse(localStorage.getItem(BACKUP_KEY) || "null"); } catch {}
+sessionStorage.removeItem(KEY);
+localStorage.removeItem(BACKUP_KEY);
+const expected = fromSession || (fromBackup && Date.now() - fromBackup.createdAt <= 600000 ? fromBackup.state : "");
+const error = result.get("error");
+const accessToken = result.get("access_token");
+const stateValid = !!expected && !!result.get("state") && expected === result.get("state");
+const lifetimeProvided = Number(result.get("expires_in"));
+const lifetime = Number.isFinite(lifetimeProvided) && lifetimeProvided > 60 ? lifetimeProvided : 3600;
+// Twitch documents implicit responses without a mandatory expires_in parameter;
+// validate endpoint will independently check the returned user token before API use.
+if (error) {
+  message.textContent = "Twitch отклонил авторизацию: " + (result.get("error_description") || error);
+  reason.textContent = "Проверь Redirect URL в Twitch Developer Console (нажми «Добавить» и «Сохранить»), Public Client и повтори подключение.";
+} else if (!stateValid) {
+  message.textContent = "Не совпало подтверждение OAuth. Токен не сохранён.";
+  reason.textContent = expected
+    ? "Ответ Twitch не содержит ожидаемого state. Не открывай ссылку авторизации в другой вкладке."
+    : "Браузер потерял состояние авторизации. Попробуй снова из Collab Room в той же вкладке.";
+} else if (!accessToken) {
+  message.textContent = "Twitch не прислал access_token.";
+  reason.textContent = "Проверь настройки приложения и нажми «Подключить Twitch» ещё раз.";
 } else {
-  message.textContent = params.get("error_description") || "Не удалось подтвердить подключение. Вернись в календарь и повтори попытку.";
+  sessionStorage.setItem("collab-room-twitch-session-v1", JSON.stringify({
+    token: accessToken, clientId: twitchClientId, expiresAt: Date.now() + Math.min(lifetime, 86400 * 60) * 1000
+  }));
+  message.textContent = "Twitch подключён. Возвращаемся в раздел «Стримеры».";
+  location.replace("./#/streamers");
 }
 </script></body></html>

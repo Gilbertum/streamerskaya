@@ -29,11 +29,12 @@ function detailItem(item, kind, ownerUid) {
   let heading = kind==="slot" ? slotTitle(item) : (item.game||"Игра неизвестна");
   let tag = kind==="slot"?tagType(item.type):(kind==="pending"?"Предложение (не принято)":"Подтверждённый коллаб");
   const person = kind==="slot"?"":'<p class="muted" style="margin:6px 0">С кем: '+h(counterpart(item,ownerUid))+'</p>';
+  const groupInfo=item.participants?.length?'<p class="tiny-note">Участники: '+h(item.participants.join(", ")) +'</p>':"";
   const note = kind==="slot"&&item.details?'<p style="white-space:pre-wrap">'+h(item.details)+'</p>':"";
   const status = kind==="slot" ? (item.public===false?"Скрыто от зрителей":"") : kind==="pending"?"Ожидает согласия второй стороны":"Подтверждено";
   return '<div class="mod-detail-full"><span class="tag '+h(kind==="pending"?"maybe":kind==="slot"?item.type:"collab")+'">'+h(tag)+'</span>'+
     '<h3>'+h(heading)+'</h3><p class="tiny-note">'+h(fmt(item.date))+' · '+h(hours(item))+' МСК</p>'+
-    person+note+(status?'<p class="tiny-note">'+h(status)+'</p>':"")+'</div>';
+    person+groupInfo+note+(status?'<p class="tiny-note">'+h(status)+'</p>':"")+'</div>';
 }
 function openDay(date, slots, locks, pending, ownerUid, focusId) {
   const events=[
@@ -73,7 +74,7 @@ export async function startModeratorV3({db,auth,uid,screen,identity,user}){
   remember(user.uid,uid);
   const m=await getDoc(doc(db,"members",uid));
   const owner=m.exists()?m.data():{};
-  let month=monthToday(),slots=[],from=[],to=[],pending=[],channelOptions=[{uid,name:owner.nick||uid}];
+  let month=monthToday(),slots=[],from=[],to=[],pending=[],groupDiary=[],channelOptions=[{uid,name:owner.nick||uid}];
   const subscriptions=[],errors=[];
   const known=knownChannels(user.uid).filter(x=>x!==uid).slice(0,20);
   // Each cached channel is checked against Firestore. The browser cache grants no privileges.
@@ -86,7 +87,12 @@ export async function startModeratorV3({db,auth,uid,screen,identity,user}){
     }catch{return null;}
   }));
   channelOptions.push(...accessible.filter(Boolean));
-  function monthLocks(){return [...new Map([...from,...to].map(x=>[x.id,x])).values()];}
+  function groupLegacy(x) {
+    return { ...x,group:true,fromUid:x.organizerUid,toUid:uid,fromName:x.organizerName,
+      toName:(x.participants||[]).filter(n=>n!==x.organizerName).join(", ")||"Участницы" };
+  }
+  function monthLocks(){return [...new Map([...from,...to,...groupDiary.filter(x=>x.status==="confirmed").map(groupLegacy)].map(x=>[x.id,x])).values()];}
+  function monthPending(){return [...pending,...groupDiary.filter(x=>x.status==="collecting").map(groupLegacy)];}
   function render(){
     const [year,mo]=month.split("-").map(Number);
     const first=(new Date(Date.UTC(year,mo-1,1)).getUTCDay()+6)%7;
@@ -95,7 +101,7 @@ export async function startModeratorV3({db,auth,uid,screen,identity,user}){
     let cells="";
     for(let i=0;i<cellsCount;i++){
       const date=addDays(begin,i);
-      const daySlots=slots.filter(x=>x.date===date),dayLocks=locks.filter(x=>x.date===date),dayPending=pending.filter(x=>x.date===date);
+      const daySlots=slots.filter(x=>x.date===date),dayLocks=locks.filter(x=>x.date===date),dayPending=monthPending().filter(x=>x.date===date);
       const cards=[
         ...daySlots.slice(0,3).map(x=>'<button type="button" class="mod-chip '+h(x.type)+'" data-mod-date="'+date+'" data-mod-id="'+h(x.id)+'" title="Подробнее">'+h(slotTitle(x))+'</button>'),
         ...dayLocks.slice(0,2).map(x=>'<button type="button" class="mod-chip collab" data-mod-date="'+date+'" data-mod-id="'+h(x.id)+'">✓ '+h(x.game||"Коллаба")+'</button>'),
@@ -108,7 +114,7 @@ export async function startModeratorV3({db,auth,uid,screen,identity,user}){
         cards+(total>7?'<button type="button" class="mod-more" data-mod-date="'+date+'">Все события ('+total+')</button>':'')+'</div>';
     }
     const monthLocksList=locks.filter(x=>x.date.slice(0,7)===month).sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start));
-    const pendingList=pending.filter(x=>x.date.slice(0,7)===month).sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start));
+    const pendingList=monthPending().filter(x=>x.date.slice(0,7)===month).sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start));
     const fullRows=monthLocksList.map(x=>'<button type="button" class="mod-row" data-mod-date="'+h(x.date)+'" data-mod-id="'+h(x.id)+'"><span class="tag collab">Принято</span>'+
       '<span><strong>'+h(x.game||"Коллаба")+'</strong><small>'+h(fmt(x.date))+' · '+h(hours(x))+' · '+h(counterpart(x,uid))+'</small></span></button>').join("");
     const pendingRows=pendingList.map(x=>'<button type="button" class="mod-row" data-mod-date="'+h(x.date)+'" data-mod-id="'+h(x.id)+'"><span class="tag maybe">Ожидает</span>'+
@@ -143,7 +149,7 @@ export async function startModeratorV3({db,auth,uid,screen,identity,user}){
       if(!target){alert("Нужна ссылка вида .../#/mod/UID_СТРИМЕРА или сам UID.");return;}
       location.hash="#/mod/"+target;return;
     }
-    if(el.hasAttribute("data-mod-date")){openDay(el.dataset.modDate,slots,monthLocks(),pending,uid,el.dataset.modId||"");return;}
+    if(el.hasAttribute("data-mod-date")){openDay(el.dataset.modDate,slots,monthLocks(),monthPending(),uid,el.dataset.modId||"");return;}
     const shift=Number(el.dataset.modMonth);
     if(shift===0)month=monthToday();
     else {const [y,m]=month.split("-").map(Number);month=new Date(Date.UTC(y,m-1+shift,1)).toISOString().slice(0,7);}
@@ -160,5 +166,6 @@ export async function startModeratorV3({db,auth,uid,screen,identity,user}){
   watch(query(collection(db,"collabLocks"),where("fromUid","==",uid)),x=>{from=x;});
   watch(query(collection(db,"collabLocks"),where("toUid","==",uid)),x=>{to=x;});
   watch(collection(db,"moderatorPending",uid,"items"),x=>{pending=x;});
+  watch(collection(db,"groupDiary",uid,"items"),x=>{groupDiary=x;});
   return ()=>{subscriptions.forEach(fn=>fn());screen.removeEventListener("click",handler);screen.removeEventListener("change",change);};
 }
