@@ -47,7 +47,8 @@ export async function startPublicView({ db, uid, screen, identity }) {
   screen.innerHTML = '<div class="empty">Открываем расписание…</div>';
   const [profileDoc, collabsDoc] = await Promise.all([
     getDoc(doc(db, "publicSchedules", uid)),
-    getDocs(collection(db, "publicCollabs", uid, "items"))
+    // Existing Firebase projects may still run v1 rules. Keep public schedules readable until rules are upgraded.
+    getDocs(collection(db, "publicCollabs", uid, "items")).catch(() => ({ docs: [] }))
   ]);
   const data = profileDoc.exists() ? profileDoc.data() : { nick: "Стримера", events: [] };
   const collabs = collabsDoc.docs.map((d) => ({ ...d.data(), type: "collab" }));
