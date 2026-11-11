@@ -271,9 +271,14 @@ function renderInbox() {
     const inbound = p.toUid === state.uid;
     const someone = inbound ? nameOf(p.fromUid) : nameOf(p.toUid);
     const controls = [];
+    const duplicated = p.status === "pending" && duplicateConfirmedInvite(p,p,p.replacesId||"");
     if (inbound && p.status === "pending") {
-      controls.push('<button class="button small" data-action="respond" data-answer="accepted" data-id="' + h(p.id) + '">Принять</button>');
-      controls.push('<button class="button button-ghost small" data-action="respond" data-answer="declined" data-id="' + h(p.id) + '">Отклонить</button>');
+      if (duplicated) {
+        controls.push('<button class="button button-ghost small" data-action="respond" data-answer="declined" data-id="' + h(p.id) + '">Убрать повтор</button>');
+      } else {
+        controls.push('<button class="button small" data-action="respond" data-answer="accepted" data-id="' + h(p.id) + '">Принять</button>');
+        controls.push('<button class="button button-ghost small" data-action="respond" data-answer="declined" data-id="' + h(p.id) + '">Отклонить</button>');
+      }
     }
     if ((p.status === "pending" && !inbound) || p.status === "accepted") controls.push('<button class="button button-subtle small" data-action="respond" data-answer="cancelled" data-id="' + h(p.id) + '">Отменить</button>');
     const choices = Array.isArray(p.timeOptions) && p.timeOptions.length ? p.timeOptions : null;
@@ -284,6 +289,7 @@ function renderInbox() {
         : '<p class="tiny-note" style="margin:9px 0">Предложено ' + choices.length + ' вариантов. Получатель выберет подходящий.</p>')
       : "";
     return '<article class="invite"><div class="invite-top"><div><div class="invite-title">' + (p.replacesId ? '↪ Перенос · ' : '') + h(p.game) + '</div><div class="invite-detail">' + (inbound ? 'От ' : 'Для ') + h(someone) + ' · ' + h(dateLabel(p.date)) + ' · ' + fmtTime(p) + '</div></div><span class="tag status-' + h(p.status) + '">' + h(statusNames[p.status] || p.status) + '</span></div>' +
+      (duplicated ? '<div class="notice info">Повтор: такая коллаба с теми же участниками, игрой и временем уже подтверждена. Убрать повтор можно без отмены существующей коллабы.</div>' : "") +
       chooser +
       (p.message ? '<div class="invite-message">' + h(p.message) + '</div>' : "") +
       '<div class="button-row">' + controls.join("") + '</div></article>';
