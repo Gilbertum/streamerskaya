@@ -1,5 +1,7 @@
 import { doc, getDoc, getDocs, collection, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
+import { signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
+
 const h = (x) => String(x === undefined || x === null ? "" : x).replace(/[&<>"']/g, (s) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[s]);
 function url(x) { try { const u = new URL(String(x || "")); return u.protocol === "https:" ? h(u.href) : ""; } catch { return ""; } }
@@ -107,7 +109,7 @@ export async function startModeratorView({ db, auth, uid, screen, identity, user
       '<p class="sub">Владелица должна разрешить твоему аккаунту просмотр именно этого расписания в Firebase.</p>' +
       '<div class="profile-link">UID модератора: ' + h(user.uid) + '</div>' +
       '<button class="button button-ghost" data-mod-logout="true">Выйти из аккаунта</button></div></section>';
-    const handler = (e) => { if (e.target.closest("[data-mod-logout]")) auth.signOut(); };
+    const handler = (e) => { if (e.target.closest("[data-mod-logout]")) signOut(auth); };
     screen.addEventListener("click", handler);
     return () => screen.removeEventListener("click", handler);
   }
@@ -167,7 +169,7 @@ export async function startModeratorView({ db, auth, uid, screen, identity, user
     }));
   }
   const handler = (event) => {
-    if (event.target.closest("[data-mod-logout]")) { auth.signOut(); return; }
+    if (event.target.closest("[data-mod-logout]")) { signOut(auth); return; }
     const button = event.target.closest("[data-mod-month]");
     if (!button) return;
     const d = Number(button.dataset.modMonth);
