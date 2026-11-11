@@ -410,28 +410,6 @@ function setupScreen() {
   screen.innerHTML = '<section class="auth"><div class="panel"><p class="eyebrow">Подключение базы</p><h1>Сайт опубликован, Firebase ещё не подключён</h1><p class="sub">Для запуска кабинетов создай проект Firebase, включи Authentication и Firestore, вставь настройки веб-приложения в файл <code>collabs/firebase-config.js</code> на GitHub и опубликуй правила из <code>collabs/firestore.rules</code>.</p>' +
     '<div class="notice info">Весь исходный код сайта уже доступен на GitHub. Пошаговая инструкция — в файле <code>collabs/README.md</code>.</div></div></section>';
 }
-async function publicScreen(uid) {
-  nav.hidden = true;
-  $("logout").hidden = true;
-  $("identity").textContent = "Просмотр для зрителей";
-  screen.innerHTML = '<div class="empty">Загружаем публичное расписание…</div>';
-  try {
-    const snap = await getDoc(doc(db, "publicSchedules", uid));
-    if (!snap.exists()) {
-      screen.innerHTML = '<section class="public-page"><div class="empty"><strong>Расписание пока не опубликовано</strong>Автор ещё не создал публичных событий или ссылка неверна.</div><p><a href="./">← Войти в комнату</a></p></section>';
-      return;
-    }
-    const data = snap.data();
-    const events = Array.isArray(data.events) ? data.events.filter((e) => e.date >= addDays(mskToday(), -30)).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start)) : [];
-    const cards = events.map((e) => '<div class="public-event"><div><div class="public-date">' + h(dateLabel(e.date)) + '</div><div class="public-title">' + h(e.title) + '</div></div><div class="tag stream">' + fmtTime(e) + ' МСК</div></div>').join("");
-    const link = safeUrl(data.twitch);
-    screen.innerHTML = '<section class="public-page"><p class="eyebrow">Публичное расписание</p><h1>Стримы ' + h(data.nick || "стримера") + '</h1><p class="sub">Здесь только события, которые автор захотел показать сообществу. Время указано по Москве (МСК).</p>' +
-      '<div class="button-row" style="margin-bottom:18px">' + (link ? '<a class="button" href="' + link + '" target="_blank" rel="noopener noreferrer">Открыть Twitch ↗</a>' : "") + '<a class="button button-ghost" href="./">Войти в комнату</a></div>' +
-      '<div class="panel">' + (cards || '<div class="empty">Публичных стримов на ближайшее время нет.</div>') + '</div><p class="tiny-note" style="margin-top:18px">Внутренние отметки и приглашения на этой странице никогда не показываются.</p></section>';
-  } catch (error) {
-    screen.innerHTML = '<div class="notice bad">Не удалось открыть расписание: ' + h(readableError(error)) + '</div>';
-  }
-}
 function cleanup() {
   for (const unsub of state.unsubs) try { unsub(); } catch { /* noop */ }
   state.unsubs = [];
@@ -482,7 +460,25 @@ async function boot() {
     auth = getAuth(app);
     db = getFirestore(app);
     const match = location.hash.match(/^#\/s\/([A-Za-z0-9_-]{12,128})$/);
-    if (match) { await publicScreen(match[1]); return; }
+    if (match) {
+      nav.hidden = true; $("logout").hidden = true;
+      await startPublicView({ db, uid: match[1], screen, identity: $("identity") });
+      return;
+    }
+    const modMatch = location.hash.match(/^#\/mod\/([A-Za-z0-9_-]{12,128})$/);
+    if (modMatch) {
+      let dispose = () => {};
+      onAuthStateChanged(auth, async (user) => {
+        dispose(); dispose = () => {};
+        nav.hidden = true; $("logout").hidden = true;
+        try {
+          dispose = await startModeratorView({ db, auth, uid: modMatch[1], screen, identity: $("identity"), user });
+        } catch (error) {
+          screen.innerHTML = '<div class="notice bad">Ошибка модераторского раздела: ' + h(readableError(error)) + '</div>';
+        }
+      });
+      return;
+    }
     onAuthStateChanged(auth, async (user) => {
       cleanup();
       state.authorized = false;
@@ -498,6 +494,18 @@ async function boot() {
     screen.innerHTML = '<div class="notice bad">Ошибка подключения Firebase: ' + h(readableError(error)) + '</div>';
   }
 }
+document.addEventListener("change", (event) => {
+  const select = event.target.closest('form[data-form="event"] select[name="type"]');
+  if (!select) return;
+  const form = select.form;
+  if (select.value === "off") {
+    form.elements.start.value = "00:00";
+    form.elements.end.value = "00:00";
+    form.elements.public.checked = true;
+  } else if (select.value === "busy" || select.value === "maybe" || select.value === "free") {
+    form.elements.public.checked = false;
+  }
+});
 document.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-action],[data-tab]");
   if (!target) return;
@@ -574,7 +582,7 @@ document.addEventListener("submit", async (event) => {
   if (button) button.disabled = true;
   try {
     const type = form.dataset.form;
-    if (type === "login") {
+    if (type === "login" || type === "mod-login") {
       const data = Object.fromEntries(new FormData(form).entries());
       await signInWithEmailAndPassword(auth, String(data.email || "").trim(), String(data.password || ""));
     } else if (type === "search") {
