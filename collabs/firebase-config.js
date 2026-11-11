@@ -13,4 +13,4 @@ export const firebaseConfig = {
 // Twitch Developer Console → Your Console → Applications → Client ID.
 // Это публичный Client ID (НЕ Client Secret). Пока пусто, панель покажет ссылки,
 // а автоматические онлайн-статусы и аватарки станут доступны после настройки.
-export const twitchClientId = "";
+export const twitchClientId = "c9dp9lgsodbd1eisuqdphhqbauhxdc";
