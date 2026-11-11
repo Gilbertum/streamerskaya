@@ -296,7 +296,7 @@ function eventModal(id) {
     '<form data-form="event" data-id="' + h(id || "") + '" class="form-grid"><div class="field full"><label>Тип отметки</label><select name="type">' +
     legacyType + option("stream", "Стрим / запланированная игра") + option("off", "Выходной") + (!item ? option("wish", "✦ Хочу коллабу") : "") + '</select></div>' +
     '<div class="field full"><label>Игра / название стрима (для типа «Стрим»)</label><input name="title" maxlength="90" value="' + h(source.title || "") + '" placeholder="Far Far West"></div>' +
-    '<div class="field full"><label>Примечания для участниц и модераторов (не видны зрителям)</label><textarea name="details" maxlength="500" placeholder="Например, гости, план или примечания">' + h(source.details || "") + '</textarea></div>' +
+    '<div class="field full"><label>Примечания (не видны зрителям)</label><textarea name="details" maxlength="500" placeholder="Например, гости, план или примечания">' + h(source.details || "") + '</textarea></div>' +
     '<div class="field"><label>Дата</label><input type="date" name="date" value="' + h(source.date) + '" required></div>' +
     '<div class="field"><label>Начало, МСК</label><input type="time" name="start" value="' + h(source.start) + '" required></div>' +
     '<div class="field"><label>Конец, МСК</label><input type="time" name="end" value="' + h(source.end) + '" required></div>' +
