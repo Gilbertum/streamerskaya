@@ -25,7 +25,7 @@ function description(e){
   return typeName(e);
 }
 export function streamersHtml({members,slots,locks,diary,selectedUid,month,me}){
-  const people=members.filter(m=>m.id!==me);
+  const people=[...members];
   if(!selectedUid){
     const list=people.sort((a,b)=>a.nick.localeCompare(b.nick,"ru")).map(p=>{
       const meta=twitchProfile(twitchLogin(p.twitch));
