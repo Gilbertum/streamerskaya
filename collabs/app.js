@@ -321,6 +321,7 @@ async function sendInvite(form) {
   const member = person(uid);
   if (!member || uid === state.uid) throw new Error("Участница не найдена.");
   if (!isDate(data.date) || !isTime(data.start) || !isTime(data.end) || data.start === data.end) throw new Error("Проверь дату и часы коллаба.");
+  if (data.date < mskToday()) throw new Error("Нельзя отправить приглашение на прошедший день.");
   const game = String(data.game || "").trim().slice(0, 90);
   if (!game) throw new Error("Укажи игру или формат.");
   const request = { date: data.date, start: data.start, end: data.end };
@@ -446,7 +447,7 @@ async function checkAccess(user) {
   const old = await getDoc(memberRef);
   if (!old.exists()) {
     await setDoc(memberRef, {
-      nick: (user.email || "Новая участница").split("@")[0].slice(0, 40),
+      nick: ((user.email || "Новая участница").split("@")[0].length >= 2 ? (user.email || "").split("@")[0] : "Новая участница").slice(0, 40),
       twitch: "", steam: "", weekdays: "", weekend: "", updatedAt: serverTimestamp()
     });
   }
