@@ -1,5 +1,6 @@
 import { firebaseConfig } from "./firebase-config.js";
-import { startPublicView, startModeratorView } from "./views.js";
+import { startPublicView } from "./views.js";
+import { startModeratorV3 } from "./moderator-v3.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, getDocs, collection, query, where, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
@@ -552,7 +553,7 @@ async function boot() {
         dispose(); dispose = () => {};
         nav.hidden = true; $("logout").hidden = true;
         try {
-          dispose = await startModeratorView({ db, auth, uid: modMatch[1], screen, identity: $("identity"), user });
+          dispose = await startModeratorV3({ db, auth, uid: modMatch[1], screen, identity: $("identity"), user });
         } catch (error) {
           screen.innerHTML = '<div class="notice bad">Ошибка модераторского раздела: ' + h(readableError(error)) + '</div>';
         }
