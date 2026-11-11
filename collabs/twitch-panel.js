@@ -30,6 +30,7 @@ export function participants(members) {
   }
   return [...byLogin.values()].sort((a, b) => a.nick.localeCompare(b.nick, "ru"));
 }
+export function twitchProfile(login) { return login ? items.get(login) || null : null; }
 export function twitchEnabled() { return typeof twitchClientId === "string" && /^[a-z0-9]{12,40}$/i.test(twitchClientId.trim()); }
 function access() {
   try {
