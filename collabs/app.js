@@ -255,6 +255,7 @@ function eventModal(id) {
     '<form data-form="event" data-id="' + h(id || "") + '" class="form-grid"><div class="field full"><label>Тип отметки</label><select name="type">' +
     option("stream", "Стрим / запланированная игра") + option("off", "Выходной (можно показать зрителям)") + option("busy", "Не могу коллабиться") + option("maybe", "Под вопросом") + option("free", "Точно свободна") + '</select></div>' +
     '<div class="field full"><label>Игра / название стрима (для типа «Стрим»)</label><input name="title" maxlength="90" value="' + h(source.title || "") + '" placeholder="Far Far West"></div>' +
+    '<div class="field full"><label>Дополнительные детали для модератора (не публикуются зрителям)</label><textarea name="details" maxlength="500" placeholder="Например, гости, план или примечания">' + h(source.details || "") + '</textarea></div>' +
     '<div class="field"><label>Дата</label><input type="date" name="date" value="' + h(source.date) + '" required></div>' +
     '<div class="field"><label>Начало, МСК</label><input type="time" name="start" value="' + h(source.start) + '" required></div>' +
     '<div class="field"><label>Конец, МСК</label><input type="time" name="end" value="' + h(source.end) + '" required></div>' +
@@ -295,6 +296,37 @@ async function publishPublicSchedule() {
     nick: m.nick || state.nick, twitch: m.twitch || "", telegram: m.telegram || "", youtube: m.youtube || "", tiktok: m.tiktok || "", discord: m.discord || "", events, updatedAt: serverTimestamp()
   });
 }
+async function collabVisibilityModal(id) {
+  const lock = state.locks.find((x) => x.id === id && [x.fromUid, x.toUid].includes(state.uid));
+  if (!lock) throw new Error("Коллаба не найдена.");
+  const marker = await getDoc(doc(db, "publicCollabs", state.uid, "items", id));
+  const v = marker.exists() ? marker.data() : {};
+  const otherUid = lock.fromUid === state.uid ? lock.toUid : lock.fromUid;
+  modalOpen('<h2 id="modalTitle">Что увидят твои зрители?</h2>' +
+    '<p class="sub">Только для твоего публичного расписания. По умолчанию игра и партнёр скрыты. У второго участника настройки независимые.</p>' +
+    '<div class="panel-lite" style="margin:14px 0"><strong>' + h(lock.game || "Игра не указана") + '</strong><p class="tiny-note">С ' + h(nameOf(otherUid)) + ' · ' + h(dateLabel(lock.date)) + ' · ' + fmtTime(lock) + ' МСК</p></div>' +
+    '<form data-form="collab-visibility" data-id="' + h(id) + '">' +
+    '<label class="check-line" style="margin:14px 0"><input name="showGame" type="checkbox"' + (v.game ? " checked" : "") + '>Показывать название игры</label>' +
+    '<label class="check-line" style="margin:14px 0"><input name="showPartner" type="checkbox"' + (v.partner ? " checked" : "") + '>Показывать ник участника</label>' +
+    '<p class="tiny-note">Учитывай договорённости с партнёром, прежде чем раскрывать информацию.</p>' +
+    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Отмена</button>' +
+    '<button type="submit" class="button">Сохранить видимость</button></div></form>');
+}
+async function saveCollabVisibility(form) {
+  const id = form.dataset.id;
+  const lock = state.locks.find((x) => x.id === id && [x.fromUid, x.toUid].includes(state.uid));
+  if (!lock) throw new Error("Коллаба уже отменена.");
+  const otherUid = lock.fromUid === state.uid ? lock.toUid : lock.fromUid;
+  const showGame = form.elements.showGame.checked;
+  const showPartner = form.elements.showPartner.checked;
+  await setDoc(doc(db, "publicCollabs", state.uid, "items", id), {
+    date: lock.date, start: lock.start, end: lock.end, type: "collab",
+    game: showGame ? String(lock.game || "").slice(0, 90) : "",
+    partner: showPartner ? String(nameOf(otherUid)).slice(0, 40) : ""
+  });
+  modalClose();
+  flashMessage("Видимость коллабы для твоих зрителей обновлена.");
+}
 async function saveEvent(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   if (!isDate(data.date) || !isTime(data.start) || !isTime(data.end) || (data.start === data.end && data.start !== "00:00")) throw new Error("Укажи корректные часы. Для полного дня используй 00:00–00:00.");
@@ -303,6 +335,7 @@ async function saveEvent(form) {
   const record = {
     ownerUid: state.uid, date: data.date, start: data.start, end: data.end,
     type: data.type, title: data.type === "stream" ? String(data.title || "").trim().slice(0, 90) : "",
+    details: String(data.details || "").trim().slice(0, 500),
     public: ["stream", "off"].includes(data.type) && data.hidePublic !== "on",
     updatedAt: serverTimestamp()
   };
@@ -587,6 +620,22 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "edit-event") { eventModal(target.dataset.id); return; }
+    if (action === "move-collab") {
+      const lock = state.locks.find((x) => x.id === target.dataset.id && [x.fromUid, x.toUid].includes(state.uid));
+      if (!lock) throw new Error("Коллаба уже недоступна.");
+      const otherUid = lock.fromUid === state.uid ? lock.toUid : lock.fromUid;
+      inviteModal(otherUid, lock.id);
+      return;
+    }
+    if (action === "cancel-collab") {
+      if (!confirm("Отменить подтверждённую коллабу у обоих участников?")) return;
+      if (state.busy) return;
+      state.busy = true;
+      try { await respond(target.dataset.id, "cancelled"); }
+      finally { state.busy = false; }
+      return;
+    }
+    if (action === "visibility-collab") { await collabVisibilityModal(target.dataset.id); return; }
     if (action === "invite") { inviteModal(target.dataset.uid); return; }
     if (action === "inbox-pending" || action === "inbox-all") {
       state.inboxFilter = action === "inbox-all" ? "all" : "pending"; render(); return;
@@ -638,6 +687,7 @@ document.addEventListener("submit", async (event) => {
       state.search = { date: data.date, start: data.start, end: data.end, game: String(data.game || "").trim().slice(0, 90) };
       render();
     } else if (state.authorized && type === "event") await saveEvent(form);
+    else if (state.authorized && type === "collab-visibility") await saveCollabVisibility(form);
     else if (state.authorized && type === "profile") await saveProfile(form);
     else if (state.authorized && type === "invite") await sendInvite(form);
   } catch (error) { flashMessage(readableError(error), true); console.error(error); }
