@@ -86,6 +86,8 @@ function person(id) { return state.members.find((m) => m.id === id); }
 function nameOf(id) { return person(id)?.nick || "Стример"; }
 function profileLinks(member) {
   const links = [];
+  const dm = safeUrl(member?.telegramDM);
+  if (dm) links.push('<a href="' + dm + '" target="_blank" rel="noopener noreferrer">✉ Написать в Telegram ↗</a>');
   const twitch = safeUrl(member?.twitch);
   const steam = safeUrl(member?.steam);
   if (twitch) links.push('<a href="' + twitch + '" target="_blank" rel="noopener noreferrer">Twitch ↗</a>');
@@ -106,14 +108,14 @@ function myItems(date) {
     .map((item) => ({ ...item, id: item.id, type: "collab", kind: "lock" }));
   return [...slots, ...locks].sort((a, b) => a.start.localeCompare(b.start));
 }
-function availability(memberId, request) {
+function availability(memberId, request, ignoreLockId = "") {
   const problems = [];
   for (const item of state.slots) {
     if (item.ownerUid !== memberId || item.type === "free") continue;
     if (overlaps(item, request)) problems.push(item.type === "maybe" ? "maybe" : "busy");
   }
   for (const item of state.locks) {
-    if (item.fromUid !== memberId && item.toUid !== memberId) continue;
+    if (item.id === ignoreLockId || (item.fromUid !== memberId && item.toUid !== memberId)) continue;
     if (overlaps(item, request)) problems.push("busy");
   }
   if (problems.includes("busy")) return "busy";
@@ -157,7 +159,9 @@ function renderCalendar() {
     const isLock = item.kind === "lock";
     const title = isLock ? ("Коллаб: " + item.game) : (item.type === "stream" ? (item.title || "Без названия") : typeName(item.type));
     const other = isLock ? (' · с ' + nameOf(item.fromUid === state.uid ? item.toUid : item.fromUid)) : "";
-    const controls = isLock ? "" : '<button class="button button-ghost tiny" data-action="edit-event" data-id="' + h(item.id) + '">Изменить</button>';
+    const controls = isLock
+      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="visibility-collab" data-id="' + h(item.id) + '">Зрителям</button><button class="button button-ghost tiny" data-action="move-collab" data-id="' + h(item.id) + '">Перенести</button><button class="button button-subtle tiny" data-action="cancel-collab" data-id="' + h(item.id) + '">Отменить</button></div>'
+      : '<div class="event-actions"><button class="button button-ghost tiny" data-action="edit-event" data-id="' + h(item.id) + '">Изменить</button><button class="button button-subtle tiny" data-action="delete-event" data-id="' + h(item.id) + '">Удалить</button></div>';
     return '<div class="event"><div><div class="event-title">' + h(title) + '</div><div class="event-when">' + fmtTime(item) + h(other) + '</div>' +
       '<div style="margin-top:7px"><span class="tag ' + h(item.type) + '">' + typeName(item.type) + '</span>' +
       (!isLock && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
@@ -225,6 +229,7 @@ function renderProfile() {
     '<div class="field full"><label for="twitch">Ссылка на Twitch</label><input id="twitch" name="twitch" type="url" placeholder="https://www.twitch.tv/..." value="' + h(m.twitch || "") + '"></div>' +
     '<div class="field full"><label for="steam">Ссылка на Steam</label><input id="steam" name="steam" type="url" placeholder="https://steamcommunity.com/..." value="' + h(m.steam || "") + '"></div>' +
     '<div class="field"><label for="telegram">Telegram</label><input id="telegram" name="telegram" type="url" placeholder="https://t.me/..." value="' + h(m.telegram || "") + '"></div>' +
+    '<div class="field full"><label for="telegramDM">Личный Telegram для связи со стримерами (не виден зрителям)</label><input id="telegramDM" name="telegramDM" type="url" placeholder="https://t.me/your_username" value="' + h(m.telegramDM || "") + '"></div>' +
     '<div class="field"><label for="youtube">YouTube</label><input id="youtube" name="youtube" type="url" placeholder="https://www.youtube.com/..." value="' + h(m.youtube || "") + '"></div>' +
     '<div class="field"><label for="tiktok">TikTok</label><input id="tiktok" name="tiktok" type="url" placeholder="https://www.tiktok.com/@..." value="' + h(m.tiktok || "") + '"></div>' +
     '<div class="field"><label for="discord">Discord</label><input id="discord" name="discord" type="url" placeholder="https://discord.gg/..." value="' + h(m.discord || "") + '"></div>' +
@@ -232,7 +237,7 @@ function renderProfile() {
     '<div class="field"><label for="weekend">Обычно в выходные (МСК)</label><input id="weekend" name="weekend" maxlength="80" placeholder="15:00–00:00" value="' + h(m.weekend || "") + '"></div>' +
     '<div class="full"><p class="tiny-note">Обычное время — справочная подсказка. Фактическая занятость определяется отметками в календаре.</p></div>' +
     '<div class="full"><button class="button" type="submit">Сохранить профиль</button></div></form></section>' +
-    '<section class="panel"><h2>Ссылка для зрителей</h2><p class="muted">Зрители смогут увидеть только события с отметкой «Показывать в публичном расписании».</p><div class="profile-link">' + h(publicLink(state.uid)) + '</div>' +
+    '<section class="panel"><h2>Ссылка для зрителей</h2><p class="muted">Зрители смогут увидеть только события с отметкой «Не показывать зрителям».</p><div class="profile-link">' + h(publicLink(state.uid)) + '</div>' +
     '<div class="button-row"><button class="button" data-action="copy-public">Копировать ссылку</button><a class="button button-ghost" href="' + h(publicLink(state.uid)) + '" target="_blank" rel="noopener noreferrer">Посмотреть ↗</a></div>' +
     '<div class="notice info">Дни «недоступна» и «под вопросом», переписка и приглашения не попадут в ссылку для сообщества.</div>' +
     '<h3 style="margin-top:26px">Ссылка для модераторов</h3><p class="muted">Месяц и детали подтверждённых коллабов. Доступ есть только у тех, кому разрешение выдано в Firebase.</p>' +
@@ -244,7 +249,7 @@ function renderProfile() {
 }
 function eventModal(id) {
   const item = state.slots.find((x) => x.id === id && x.ownerUid === state.uid);
-  const source = item || { date: state.date, start: "20:00", end: "23:00", type: "stream", title: "", public: false };
+  const source = item || { date: state.date, start: "20:00", end: "23:00", type: "stream", title: "", public: true };
   const option = (value, label) => '<option value="' + value + '"' + (source.type === value ? ' selected' : "") + '>' + label + '</option>';
   modalOpen('<h2 id="modalTitle">' + (item ? "Редактировать событие" : "Новое событие") + '</h2><p class="muted">Дату и часы вводим по Москве. Пустой день считается свободным.</p>' +
     '<form data-form="event" data-id="' + h(id || "") + '" class="form-grid"><div class="field full"><label>Тип отметки</label><select name="type">' +
@@ -254,8 +259,8 @@ function eventModal(id) {
     '<div class="field"><label>Начало, МСК</label><input type="time" name="start" value="' + h(source.start) + '" required></div>' +
     '<div class="field"><label>Конец, МСК</label><input type="time" name="end" value="' + h(source.end) + '" required></div>' +
     '<div class="full"><button type="button" class="button button-ghost small" data-action="whole-day">Отметить весь день (00:00–00:00)</button></div>' +
-    '<label class="check-line" style="align-self:end;padding-bottom:9px"><input name="public" type="checkbox" ' + (source.public ? "checked" : "") + '>Показать зрителям</label>' +
-    '<p class="tiny-note full">Публичная галочка работает для типов «Стрим» и «Выходной». Подробности коллабов для зрителей скрыты.</p>' +
+    '<label class="check-line" style="align-self:end;padding-bottom:9px"><input name="hidePublic" type="checkbox" ' + (source.public === false ? "checked" : "") + '>Не показывать зрителям</label>' +
+    '<p class="tiny-note full">Стримы и выходные публикуются автоматически. Галочка скрывает событие. У коллабов отдельные настройки видимости.</p>' +
     '<div class="form-actions full">' + (item ? '<button type="button" class="button button-subtle" data-action="delete-event" data-id="' + h(id) + '">Удалить</button>' : "") +
     '<button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Сохранить</button></div></form>');
 }
@@ -296,7 +301,7 @@ async function saveEvent(form) {
   const record = {
     ownerUid: state.uid, date: data.date, start: data.start, end: data.end,
     type: data.type, title: data.type === "stream" ? String(data.title || "").trim().slice(0, 90) : "",
-    public: ["stream", "off"].includes(data.type) && data.public === "on",
+    public: ["stream", "off"].includes(data.type) && data.hidePublic !== "on",
     updatedAt: serverTimestamp()
   };
   if (form.dataset.id) await updateDoc(doc(db, "slots", form.dataset.id), record);
@@ -312,11 +317,12 @@ async function saveProfile(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   const nick = String(data.nick || "").trim().slice(0, 40);
   if (nick.length < 2) throw new Error("Никнейм должен быть не короче двух символов.");
-  for (const key of ["twitch", "steam", "telegram", "youtube", "tiktok", "discord"]) if (data[key] && !safeUrl(data[key])) throw new Error("Для ссылок нужен полный адрес https://...");
+  for (const key of ["twitch", "steam", "telegram", "telegramDM", "youtube", "tiktok", "discord"]) if (data[key] && !safeUrl(data[key])) throw new Error("Для ссылок нужен полный адрес https://...");
   const member = {
     nick, twitch: String(data.twitch || "").trim().slice(0, 300),
     steam: String(data.steam || "").trim().slice(0, 300),
     telegram: String(data.telegram || "").trim().slice(0, 300),
+    telegramDM: String(data.telegramDM || "").trim().slice(0, 300),
     youtube: String(data.youtube || "").trim().slice(0, 300),
     tiktok: String(data.tiktok || "").trim().slice(0, 300),
     discord: String(data.discord || "").trim().slice(0, 300),
@@ -450,7 +456,7 @@ async function checkAccess(user) {
   if (!old.exists()) {
     await setDoc(memberRef, {
       nick: ((user.email || "Новая участница").split("@")[0].length >= 2 ? (user.email || "").split("@")[0] : "Новая участница").slice(0, 40),
-      twitch: "", steam: "", telegram: "", youtube: "", tiktok: "", discord: "", weekdays: "", weekend: "", updatedAt: serverTimestamp()
+      twitch: "", steam: "", telegram: "", telegramDM: "", youtube: "", tiktok: "", discord: "", weekdays: "", weekend: "", updatedAt: serverTimestamp()
     });
   }
   const fresh = await getDoc(memberRef);
@@ -509,9 +515,9 @@ document.addEventListener("change", (event) => {
   if (select.value === "off") {
     form.elements.start.value = "00:00";
     form.elements.end.value = "00:00";
-    form.elements.public.checked = true;
+    form.elements.hidePublic.checked = false;
   } else if (select.value === "busy" || select.value === "maybe" || select.value === "free") {
-    form.elements.public.checked = false;
+    form.elements.hidePublic.checked = true;
   }
 });
 document.addEventListener("click", async (event) => {
