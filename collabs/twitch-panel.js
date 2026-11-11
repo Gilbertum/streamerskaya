@@ -116,7 +116,8 @@ export async function refreshTwitch(members, onUpdate, force = false) {
     lastKey = key; refreshedAt = Date.now();
   } catch (error) {
     errorText = error?.message || "Не удалось проверить Twitch.";
-    refreshedAt = 0;
+    // Prevent a rerender → immediate retry loop after transient API errors.
+    refreshedAt = Date.now(); lastKey = key;
   } finally {
     loading = false;
     onUpdate?.();
