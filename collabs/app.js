@@ -380,29 +380,52 @@ async function respond(id, answer) {
   if (answer === "accepted" && (p.toUid !== state.uid || p.status !== "pending")) throw new Error("Принять приглашение может только получатель.");
   if (answer === "declined" && (p.toUid !== state.uid || p.status !== "pending")) throw new Error("Отклонить приглашение может только получатель.");
   if (answer === "cancelled" && p.status !== "pending" && p.status !== "accepted") throw new Error("Это предложение уже завершено.");
+  const oldLock = answer === "accepted" && p.replacesId ? state.locks.find((lock) => lock.id === p.replacesId) : null;
+  if (answer === "accepted" && p.replacesId && (!oldLock ||
+    ![oldLock.fromUid, oldLock.toUid].includes(p.fromUid) ||
+    ![oldLock.fromUid, oldLock.toUid].includes(p.toUid))) {
+    throw new Error("Исходная коллаба для переноса уже отменена или недоступна.");
+  }
   if (answer === "accepted") {
-    const mine = availability(state.uid, p);
-    const theirs = availability(p.fromUid, p);
-    if (mine === "busy" || theirs === "busy") throw new Error("В это время уже есть занятое окно. Освободи время или попроси другое приглашение.");
+    const mine = availability(state.uid, p, p.replacesId || "");
+    const theirs = availability(p.fromUid, p, p.replacesId || "");
+    if (mine === "busy" || theirs === "busy") throw new Error("На новом времени есть занятость. Выберите другое окно.");
   }
   const batch = writeBatch(db);
   batch.update(doc(db, "proposals", id), { status: answer, respondedAt: serverTimestamp() });
-  const lockRef = doc(db, "collabLocks", id);
-  const publicMarkers = [p.fromUid, p.toUid].map((uid) => doc(db, "publicCollabs", uid, "items", id));
+  const newLock = doc(db, "collabLocks", id);
+  const markers = (proposal) => [proposal.fromUid, proposal.toUid].map((uid) => doc(db, "publicCollabs", uid, "items", proposal.id));
+  if (p.status === "pending" && Object.prototype.hasOwnProperty.call(p, "replacesId")) {
+    for (const ownerUid of [p.fromUid, p.toUid]) {
+      batch.delete(doc(db, "moderatorPending", ownerUid, "items", p.id));
+    }
+  }
   if (answer === "accepted") {
-    batch.set(lockRef, {
+    batch.set(newLock, {
       fromUid: p.fromUid, toUid: p.toUid, fromName: p.fromName, toName: p.toName,
       date: p.date, start: p.start, end: p.end, game: p.game
     });
-    // Only the generic label and hours are publicly projected; no game or participant names.
-    const marker = { date: p.date, start: p.start, end: p.end, type: "collab" };
-    for (const ref of publicMarkers) batch.set(ref, marker);
+    const marker = { date: p.date, start: p.start, end: p.end, type: "collab", game: "", partner: "" };
+    for (const ref of markers(p)) batch.set(ref, marker);
+    if (oldLock) {
+      batch.update(doc(db, "proposals", oldLock.id), { status: "cancelled", respondedAt: serverTimestamp() });
+      batch.delete(doc(db, "collabLocks", oldLock.id));
+      // Legacy confirmed invitations may have no public markers.
+      const oldRefs = markers({ ...oldLock, id: oldLock.id });
+      const present = await Promise.all(oldRefs.map((ref) => getDoc(ref)));
+      for (let i = 0; i < oldRefs.length; i++) if (present[i].exists()) batch.delete(oldRefs[i]);
+    }
   } else if (p.status === "accepted") {
-    batch.delete(lockRef);
-    for (const ref of publicMarkers) batch.delete(ref);
+    batch.delete(newLock);
+    const refs = markers(p);
+    const present = await Promise.all(refs.map((ref) => getDoc(ref)));
+    for (let i = 0; i < refs.length; i++) if (present[i].exists()) batch.delete(refs[i]);
   }
   await batch.commit();
-  flashMessage(answer === "accepted" ? "Коллаб подтверждён и добавлен в оба календаря." : answer === "declined" ? "Приглашение отклонено." : "Коллаб отменён.");
+  const message = answer === "accepted"
+    ? (oldLock ? "Перенос подтверждён: старое время освобождено, новое сохранено." : "Коллаба подтверждена и добавлена в оба календаря.")
+    : answer === "declined" ? "Приглашение отклонено." : "Коллаба или приглашение отменены.";
+  flashMessage(message);
 }
 async function refreshOwn() {
   if (!state.authorized) return;
