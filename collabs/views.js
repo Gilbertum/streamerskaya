@@ -39,7 +39,7 @@ function socials(data) {
 }
 function publicCard(e) {
   if (e.type === "off") return '<div class="community-event off"><strong>Выходной</strong><small>Сегодня отдыхаем ✦</small></div>';
-  if (e.type === "collab") return '<div class="community-event collab"><strong>Коллаба</strong><small>' + span(e) + ' МСК · подробности позже</small></div>';
+  if (e.type === "collab") return '<div class="community-event collab"><strong>' + h(e.game || "Коллаба") + '</strong><small>' + span(e) + ' МСК' + (e.partner ? ' · с ' + h(e.partner) : ' · участники скрыты') + '</small></div>';
   return '<div class="community-event stream"><strong>' + h(e.title || "Неизвестно") + '</strong><small>' + span(e) + ' МСК</small></div>';
 }
 export async function startPublicView({ db, uid, screen, identity }) {
@@ -58,8 +58,8 @@ export async function startPublicView({ db, uid, screen, identity }) {
   ];
   let monday = weekStart(todayMsk());
   const render = () => {
-    const end = day(monday, 4);
-    const cards = Array.from({ length: 5 }, (_, i) => {
+    const end = day(monday, 6);
+    const cards = Array.from({ length: 7 }, (_, i) => {
       const date = day(monday, i);
       const onDate = events.filter((e) => e.date === date);
       const off = onDate.find((e) => e.type === "off");
@@ -69,12 +69,12 @@ export async function startPublicView({ db, uid, screen, identity }) {
       return '<article class="week-card' + (date === todayMsk() ? ' current' : '') + '"><div class="week-date"><span>' + h(weekday) + '</span><b>' + readable(date, { day: "numeric", month: "short" }) + '</b></div><div class="week-content">' + body + '</div></article>';
     }).join("");
     screen.innerHTML = '<section class="community-page"><p class="eyebrow">Публичное расписание</p>' +
-      '<div class="community-heading"><div><h1>Неделя ' + h(data.nick || "стримера") + '</h1><p class="sub">Планы на стримы с понедельника по пятницу. Всё время — МСК (UTC+3). Детали будущих коллабов пока секретные.</p></div>' +
+      '<div class="community-heading"><div><h1>Неделя ' + h(data.nick || "стримера") + '</h1><p class="sub">Планы на стримы с понедельника по воскресенье. Всё время — МСК (UTC+3). Игра и участники коллабов отображаются только с разрешения стримера.</p></div>' +
       '<div class="socials">' + socials(data) + '</div></div>' +
       '<div class="panel week-panel"><div class="section-bar week-top"><div><h2>План на неделю</h2><p class="tiny-note">' + h(readable(monday)) + ' — ' + h(readable(end)) + '</p></div>' +
       '<div class="button-row"><button class="button button-ghost small" data-community-week="-1" aria-label="Прошлая неделя">←</button><button class="button button-ghost small" data-community-week="0">Эта неделя</button><button class="button button-ghost small" data-community-week="1" aria-label="Следующая неделя">→</button></div></div>' +
       '<div class="week-board">' + cards + '</div></div>' +
-      '<p class="tiny-note" style="margin:18px 0">«Неизвестно» означает, что стример ещё не опубликовал планы. Внутренние отметки и участники коллабов здесь не показываются.</p></section>';
+      '<p class="tiny-note" style="margin:18px 0">«Неизвестно» означает, что стример ещё не опубликовал планы. Внутренние статусы недоступности и скрытые подробности коллабов здесь не отображаются.</p></section>';
   };
   const handler = (event) => {
     const b = event.target.closest("[data-community-week]");
