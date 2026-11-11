@@ -4,6 +4,7 @@ import { signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth
 const h = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]);
 function addDays(iso, n) { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0,10); }
 function monthToday() { const p=new Intl.DateTimeFormat("en-US",{timeZone:"Europe/Moscow",year:"numeric",month:"2-digit"}).formatToParts(new Date()); const get=t=>p.find(x=>x.type===t).value; return get("year")+"-"+get("month"); }
+function todayMsk() { const p=new Intl.DateTimeFormat("en-US",{timeZone:"Europe/Moscow",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()); const get=t=>p.find(x=>x.type===t).value; return get("year")+"-"+get("month")+"-"+get("day"); }
 function fmt(iso, opts = {day:"numeric",month:"long"}) { return new Date(iso + "T12:00:00Z").toLocaleDateString("ru-RU",opts); }
 function hours(x) { if(x.start==="00:00"&&x.end==="00:00")return "Весь день";return (x.start||"??:??")+"–"+(x.end||"??:??")+(x.end<=x.start?" (+1 день)":""); }
 function ownerKey(modUid) { return "collabRoom:modChannels:v3:"+modUid; }
@@ -101,7 +102,7 @@ export async function startModeratorV3({db,auth,uid,screen,identity,user}){
         ...dayPending.slice(0,2).map(x=>'<button type="button" class="mod-chip maybe" data-mod-date="'+date+'" data-mod-id="'+h(x.id)+'">◷ Коллаба?</button>')
       ].join("");
       const total=daySlots.length+dayLocks.length+dayPending.length;
-      const current=date===new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Moscow",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date()).replace(/\//g,"-");
+      const current=date===todayMsk();
       cells+='<div class="mod-day'+(date.slice(0,7)!==month?' outside':'')+(current?' today':'')+'">'+
         '<button type="button" class="mod-day-number" data-mod-date="'+date+'">'+Number(date.slice(8))+'</button>'+
         cards+(total>7?'<button type="button" class="mod-more" data-mod-date="'+date+'">Все события ('+total+')</button>':'')+'</div>';
