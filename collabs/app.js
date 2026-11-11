@@ -66,7 +66,7 @@ function flashMessage(message, error = false) {
   flash.className = error ? "flash bad" : "flash";
   flash.hidden = false;
   clearTimeout(flash._timer);
-  flash._timer = setTimeout(() => { flash.hidden = true; }, 6500);
+  flash._timer = setTimeout(() => { flash.hidden = true; }, error ? 15000 : 6500);
 }
 function readableError(error) {
   const code = error?.code || "";
@@ -129,6 +129,40 @@ function availability(memberId, request, ignoreLockId = "") {
   if (problems.includes("busy")) return "busy";
   if (problems.includes("maybe")) return "maybe";
   return "free"; // Если ничего не отмечено, можно предложить коллаб.
+}
+
+function bookingConflicts(memberId, request, ignoreLockId = "") {
+  const blockers=[];
+  for (const item of state.slots) {
+    if (item.ownerUid !== memberId || item.type === "free" || item.type === "maybe" || !overlaps(item,request)) continue;
+    blockers.push({date:item.date,start:item.start,end:item.end,
+      label:item.type === "stream" ? "Стрим: " + (item.title||"Без игры") :
+        item.type === "off" ? "Выходной" : "Недоступна"});
+  }
+  for (const lock of state.locks) {
+    if (lock.id === ignoreLockId || (lock.fromUid !== memberId && lock.toUid !== memberId) || !overlaps(lock,request)) continue;
+    blockers.push({date:lock.date,start:lock.start,end:lock.end,
+      label:"Коллаба: "+(lock.game||"Без игры")+" с "+nameOf(lock.fromUid===memberId?lock.toUid:lock.fromUid)});
+  }
+  for (const group of state.groupCalendar) {
+    if (!group.participantsUids?.includes(memberId) || !overlaps(group,request)) continue;
+    blockers.push({date:group.date,start:group.start,end:group.end,
+      label:"Групповая коллаба: "+(group.game||"Без игры")});
+  }
+  return blockers;
+}
+function duplicateConfirmedInvite(p, request, ignoreLockId = "") {
+  return state.locks.find(lock => lock.id !== ignoreLockId &&
+    ((lock.fromUid===p.fromUid && lock.toUid===p.toUid) ||
+     (lock.fromUid===p.toUid && lock.toUid===p.fromUid)) &&
+    lock.date===request.date && lock.start===request.start && lock.end===request.end &&
+    String(lock.game||"").trim().toLowerCase()===String(p.game||"").trim().toLowerCase());
+}
+function conflictDescription(ownerUid,request,ignoreLockId="") {
+  const conflict=bookingConflicts(ownerUid,request,ignoreLockId)[0];
+  if(!conflict)return "";
+  return (ownerUid===state.uid?"У тебя":"У "+nameOf(ownerUid))+
+    " уже запланировано «"+conflict.label+"» "+dateLabel(conflict.date)+", "+fmtTime(conflict)+" МСК";
 }
 function countPending() {
   return state.received.filter(p=>p.status==="pending").length +
@@ -466,8 +500,13 @@ async function sendInvite(form) {
   const request = { date: data.date, start: data.start, end: data.end };
   const replacesId = form.dataset.replaces || "";
   if (replacesId && !state.locks.some((x) => x.id === replacesId && [x.fromUid, x.toUid].includes(uid) && [x.fromUid, x.toUid].includes(state.uid))) throw new Error("Старая коллаба уже неактуальна.");
-  if (availability(uid, request, replacesId) === "busy") throw new Error("Это окно уже занято. Выбери другое время.");
-  if (availability(state.uid, request, replacesId) === "busy") throw new Error("В твоём расписании уже занято это время.");
+  if (duplicateConfirmedInvite({fromUid:state.uid,toUid:uid,game},request,replacesId)) {
+    throw new Error("Такая коллаба с "+member.nick+" уже подтверждена. Повторное приглашение не требуется.");
+  }
+  const senderConflict=conflictDescription(state.uid,request,replacesId);
+  const recipientConflict=conflictDescription(uid,request,replacesId);
+  if(senderConflict||recipientConflict)throw new Error("Время занято: "+
+    [senderConflict,recipientConflict].filter(Boolean).join("; ")+". Выбери другое время.");
   const exists = proposals().some((p) => p.fromUid === state.uid && p.toUid === uid && p.status === "pending" && p.date === data.date && overlaps(p, request));
   if (exists) throw new Error("Похожее приглашение уже ожидает ответа.");
   const proposalRef = doc(collection(db, "proposals"));
@@ -511,9 +550,15 @@ async function respond(id, answer, optionIndex = 0) {
     throw new Error("Исходная коллаба для переноса уже отменена или недоступна.");
   }
   if (answer === "accepted") {
-    const mine = availability(state.uid, selected, p.replacesId || "");
-    const theirs = availability(p.fromUid, selected, p.replacesId || "");
-    if (mine === "busy" || theirs === "busy") throw new Error("На новом времени есть занятость. Выберите другое окно.");
+    if(duplicateConfirmedInvite(p,selected,p.replacesId||""))
+      throw new Error("Такая же коллаба уже подтверждена между "+nameOf(p.fromUid)+" и "+
+        nameOf(p.toUid)+" на "+dateLabel(selected.date)+", "+fmtTime(selected)+
+        " МСК. Повторное приглашение можно отклонить без отмены подтверждённого.");
+    const mine=conflictDescription(state.uid,selected,p.replacesId||"");
+    const theirs=conflictDescription(p.fromUid,selected,p.replacesId||"");
+    if(mine||theirs)throw new Error("Не удалось принять приглашение: "+
+      [mine,theirs].filter(Boolean).join("; ")+
+      ". Существующие события не изменены. Согласуй другое время с организатором.");
   }
   const batch = writeBatch(db);
   const change = { status: answer, respondedAt: serverTimestamp() };
