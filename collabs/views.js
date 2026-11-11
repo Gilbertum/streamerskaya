@@ -45,16 +45,19 @@ function publicCard(e) {
 export async function startPublicView({ db, uid, screen, identity }) {
   identity.textContent = "Просмотр для зрителей";
   screen.innerHTML = '<div class="empty">Открываем расписание…</div>';
-  const [profileDoc, collabsDoc] = await Promise.all([
+  const [profileDoc, collabsDoc, groupDoc] = await Promise.all([
     getDoc(doc(db, "publicSchedules", uid)),
-    // Existing Firebase projects may still run v1 rules. Keep public schedules readable until rules are upgraded.
-    getDocs(collection(db, "publicCollabs", uid, "items")).catch(() => ({ docs: [] }))
+    getDocs(collection(db, "publicCollabs", uid, "items")).catch(() => ({ docs: [] })),
+    // Public projection contains only generic booked slots, never invitation messages.
+    getDocs(collection(db, "publicGroupCollabs", uid, "items")).catch(() => ({ docs: [] }))
   ]);
   const data = profileDoc.exists() ? profileDoc.data() : { nick: "Стримера", events: [] };
   const collabs = collabsDoc.docs.map((d) => ({ ...d.data(), type: "collab" }));
+  const groupCollabs = groupDoc.docs.map((d)=>({...d.data(),type:"collab"}));
   const events = [
     ...(Array.isArray(data.events) ? data.events.map((e) => ({ ...e, type: e.type || "stream" })) : []),
-    ...collabs
+    ...collabs,
+    ...groupCollabs
   ];
   let monday = weekStart(todayMsk());
   const render = () => {
