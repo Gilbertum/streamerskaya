@@ -372,10 +372,18 @@ async function respond(id, answer) {
   const batch = writeBatch(db);
   batch.update(doc(db, "proposals", id), { status: answer, respondedAt: serverTimestamp() });
   const lockRef = doc(db, "collabLocks", id);
+  const publicMarkers = [p.fromUid, p.toUid].map((uid) => doc(db, "publicCollabs", uid, "items", id));
   if (answer === "accepted") {
-    batch.set(lockRef, { fromUid: p.fromUid, toUid: p.toUid, date: p.date, start: p.start, end: p.end, game: p.game });
+    batch.set(lockRef, {
+      fromUid: p.fromUid, toUid: p.toUid, fromName: p.fromName, toName: p.toName,
+      date: p.date, start: p.start, end: p.end, game: p.game
+    });
+    // Only the generic label and hours are publicly projected; no game or participant names.
+    const marker = { date: p.date, start: p.start, end: p.end, type: "collab" };
+    for (const ref of publicMarkers) batch.set(ref, marker);
   } else if (p.status === "accepted") {
     batch.delete(lockRef);
+    for (const ref of publicMarkers) batch.delete(ref);
   }
   await batch.commit();
   flashMessage(answer === "accepted" ? "Коллаб подтверждён и добавлен в оба календаря." : answer === "declined" ? "Приглашение отклонено." : "Коллаб отменён.");
