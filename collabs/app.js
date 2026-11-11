@@ -588,6 +588,7 @@ function cleanup() {
   for (const unsub of state.unsubs) try { unsub(); } catch { /* noop */ }
   state.unsubs = [];
   state.sent = []; state.received = []; state.slots = []; state.locks = []; state.members = [];
+  state.groupCalendar = []; state.groupsOrganized = []; state.groupsInvited = [];
 }
 function listen() {
   cleanup();
@@ -739,6 +740,28 @@ document.addEventListener("click", async (event) => {
       state.date = state.month + "-01"; render(); return;
     }
     if (action === "current-month") { state.date = mskToday(); state.month = state.date.slice(0, 7); render(); return; }
+    if (action === "open-streamer") {
+      if (!person(target.dataset.uid)) throw new Error("Участница не найдена.");
+      state.streamerSelectedUid = target.dataset.uid;
+      state.streamerMonth = mskToday().slice(0,7);
+      render(); return;
+    }
+    if (action === "streamers-back") { state.streamerSelectedUid = null; render(); return; }
+    if (action === "streamer-prev" || action === "streamer-next" || action === "streamer-today") {
+      const delta = action === "streamer-prev" ? -1 : action === "streamer-next" ? 1 : 0;
+      const [year,month] = state.streamerMonth.split("-").map(Number);
+      const next = delta ? new Date(Date.UTC(year,month-1+delta,1)).toISOString().slice(0,7) : mskToday().slice(0,7);
+      state.streamerMonth = next; render(); return;
+    }
+    if (action === "streamer-day") {
+      modalOpen(streamerDayHtml({
+        uid: state.streamerSelectedUid, date: target.dataset.date,
+        slots: state.slots, locks: state.locks,
+        diary: state.groupCalendar.map(g=>({...g,status:"confirmed"})),
+        members: state.members
+      }));
+      return;
+    }
     if (action === "new-event") { eventModal(); return; }
     if (action === "new-wish") { wishModal(); return; }
     if (action === "add-wish-row") {
@@ -760,8 +783,34 @@ document.addEventListener("click", async (event) => {
       $("wishRows")?.querySelectorAll(".wish-number").forEach((span, i) => { span.textContent = "Вариант " + (i + 1); });
       return;
     }
+    if (action === "group-reply" || action === "group-finalize" || action === "group-cancel") {
+      if (state.busy) return;
+      const group = groupCollections(state.groupsOrganized,state.groupsInvited).find(g=>g.id===target.dataset.id);
+      if (!group) throw new Error("Групповая коллаба не найдена.");
+      if (action === "group-cancel" && !confirm("Отменить эту групповую коллабу для всех участников?")) return;
+      const answer = target.closest(".group-request");
+      state.busy = true; target.disabled = true;
+      try {
+        if (action === "group-reply") {
+          const choices=[...answer.querySelectorAll('[data-group-choice]:checked')].map(x=>Number(x.value));
+          await replyGroupWish(db,group,state.uid,choices);
+          flashMessage("Подходящие варианты отправлены организатору.");
+        } else if (action === "group-finalize") {
+          const index=Number(answer.querySelector("[data-group-final-choice]")?.value);
+          const chosen=group.options[index];
+          if (!chosen || [group.organizerUid,...group.inviteeUids].some(uid=>availability(uid,chosen)==="busy"))
+            throw new Error("Выбранное время уже занято у кого-то из участников. Проверь календари.");
+          await finalizeGroupWish(db,group,state.uid,index);
+          flashMessage("Общий слот подтверждён. Время занято у всех участниц.");
+        } else {
+          await cancelGroupWish(db,group,state.uid);
+          flashMessage("Групповая коллаба отменена у всех участниц.");
+        }
+      } finally { state.busy=false; if(target.isConnected)target.disabled=false; }
+      return;
+    }
     if (action === "connect-twitch") { startTwitchAuthorization(); return; }
-    if (action === "refresh-twitch") { await refreshTwitch(state.members, () => { if (state.tab === "calendar") renderCalendar(); }, true); return; }
+    if (action === "refresh-twitch") { await refreshTwitch(state.members, () => { if (state.tab === "streamers") renderStreamers(); }, true); return; }
     if (action === "whole-day") {
       const form = modal.querySelector('form[data-form="event"]');
       if (form) { form.elements.start.value = "00:00"; form.elements.end.value = "00:00"; }
@@ -851,8 +900,8 @@ $("logout").addEventListener("click", async () => {
 window.addEventListener("hashchange", () => location.reload());
 // Refresh visible Twitch status while the calendar tab is open.
 setInterval(() => {
-  if (state.authorized && state.tab === "calendar") {
-    refreshTwitch(state.members, () => renderCalendar());
+  if (state.authorized && state.tab === "streamers") {
+    refreshTwitch(state.members, () => renderStreamers());
   }
 }, 120000);
 boot();
