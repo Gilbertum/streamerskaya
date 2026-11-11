@@ -1,4 +1,5 @@
 import { firebaseConfig } from "./firebase-config.js";
+import { startPublicView, startModeratorView } from "./views.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, getDocs, collection, query, where, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
@@ -92,7 +93,7 @@ function profileLinks(member) {
   return links.join("");
 }
 function typeName(type) {
-  return ({ stream: "Стрим", busy: "Недоступна", maybe: "Под вопросом", free: "Свободна", collab: "Коллаб" })[type] || "Событие";
+  return ({ stream: "Стрим", off: "Выходной", busy: "Недоступна", maybe: "Под вопросом", free: "Свободна", collab: "Коллаб" })[type] || "Событие";
 }
 function proposals() {
   const map = new Map([...state.sent, ...state.received].map((p) => [p.id, p]));
@@ -215,6 +216,7 @@ function renderInbox() {
     '</div>';
 }
 function publicLink(uid) { return location.origin + location.pathname + "#/s/" + encodeURIComponent(uid); }
+function moderatorLink(uid) { return location.origin + location.pathname + "#/mod/" + encodeURIComponent(uid); }
 function renderProfile() {
   const m = state.member || {};
   screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Твои настройки</p><h1>Профиль стримера</h1><p class="sub">Ник и ссылки видны другим участницам. Почта, пароль и личные отметки не отображаются в публичном расписании.</p></div></div>' +
@@ -222,6 +224,10 @@ function renderProfile() {
     '<div class="field full"><label for="nick">Никнейм *</label><input id="nick" name="nick" maxlength="40" required value="' + h(m.nick || state.nick) + '"></div>' +
     '<div class="field full"><label for="twitch">Ссылка на Twitch</label><input id="twitch" name="twitch" type="url" placeholder="https://www.twitch.tv/..." value="' + h(m.twitch || "") + '"></div>' +
     '<div class="field full"><label for="steam">Ссылка на Steam</label><input id="steam" name="steam" type="url" placeholder="https://steamcommunity.com/..." value="' + h(m.steam || "") + '"></div>' +
+    '<div class="field"><label for="telegram">Telegram</label><input id="telegram" name="telegram" type="url" placeholder="https://t.me/..." value="' + h(m.telegram || "") + '"></div>' +
+    '<div class="field"><label for="youtube">YouTube</label><input id="youtube" name="youtube" type="url" placeholder="https://www.youtube.com/..." value="' + h(m.youtube || "") + '"></div>' +
+    '<div class="field"><label for="tiktok">TikTok</label><input id="tiktok" name="tiktok" type="url" placeholder="https://www.tiktok.com/@..." value="' + h(m.tiktok || "") + '"></div>' +
+    '<div class="field"><label for="discord">Discord</label><input id="discord" name="discord" type="url" placeholder="https://discord.gg/..." value="' + h(m.discord || "") + '"></div>' +
     '<div class="field"><label for="weekdays">Обычно в будни (МСК)</label><input id="weekdays" name="weekdays" maxlength="80" placeholder="20:00–02:00" value="' + h(m.weekdays || "") + '"></div>' +
     '<div class="field"><label for="weekend">Обычно в выходные (МСК)</label><input id="weekend" name="weekend" maxlength="80" placeholder="15:00–00:00" value="' + h(m.weekend || "") + '"></div>' +
     '<div class="full"><p class="tiny-note">Обычное время — справочная подсказка. Фактическая занятость определяется отметками в календаре.</p></div>' +
@@ -229,7 +235,11 @@ function renderProfile() {
     '<section class="panel"><h2>Ссылка для зрителей</h2><p class="muted">Зрители смогут увидеть только события с отметкой «Показывать в публичном расписании».</p><div class="profile-link">' + h(publicLink(state.uid)) + '</div>' +
     '<div class="button-row"><button class="button" data-action="copy-public">Копировать ссылку</button><a class="button button-ghost" href="' + h(publicLink(state.uid)) + '" target="_blank" rel="noopener noreferrer">Посмотреть ↗</a></div>' +
     '<div class="notice info">Дни «недоступна» и «под вопросом», переписка и приглашения не попадут в ссылку для сообщества.</div>' +
-    '<h3>Доступ в комнату</h3><p class="tiny-note">Новых участниц добавляет владелица Firebase: создаёт учётную запись и разрешает UID в коллекции allowedUsers. Публичной регистрации здесь нет.</p>' +
+    '<h3 style="margin-top:26px">Ссылка для модераторов</h3><p class="muted">Месяц и детали подтверждённых коллабов. Доступ есть только у тех, кому разрешение выдано в Firebase.</p>' +
+    '<div class="profile-link">' + h(moderatorLink(state.uid)) + '</div>' +
+    '<div class="button-row"><button class="button button-ghost small" data-action="copy-moderator">Копировать ссылку для модератора</button></div>' +
+    '<p class="tiny-note">Создай в Firebase moderatorAccess / ' + h(state.uid) + ' / users / UID_МОДЕРАТОРА с полем enabled = true (boolean). Сама ссылка прав не даёт.</p>' +
+    '<h3 style="margin-top:26px">Доступ в комнату</h3><p class="tiny-note">Новых участниц добавляет владелица Firebase: создаёт учётную запись и разрешает UID в коллекции allowedUsers. Публичной регистрации здесь нет.</p>' +
     '<p class="tiny-note">Твой UID для настройки доступа: <code>' + h(state.uid) + '</code></p></section></div>';
 }
 function eventModal(id) {
@@ -238,14 +248,14 @@ function eventModal(id) {
   const option = (value, label) => '<option value="' + value + '"' + (source.type === value ? ' selected' : "") + '>' + label + '</option>';
   modalOpen('<h2 id="modalTitle">' + (item ? "Редактировать событие" : "Новое событие") + '</h2><p class="muted">Дату и часы вводим по Москве. Пустой день считается свободным.</p>' +
     '<form data-form="event" data-id="' + h(id || "") + '" class="form-grid"><div class="field full"><label>Тип отметки</label><select name="type">' +
-    option("stream", "Стрим / запланированная игра") + option("busy", "Не могу коллабиться") + option("maybe", "Под вопросом") + option("free", "Точно свободна") + '</select></div>' +
+    option("stream", "Стрим / запланированная игра") + option("off", "Выходной (можно показать зрителям)") + option("busy", "Не могу коллабиться") + option("maybe", "Под вопросом") + option("free", "Точно свободна") + '</select></div>' +
     '<div class="field full"><label>Игра / название стрима (для типа «Стрим»)</label><input name="title" maxlength="90" value="' + h(source.title || "") + '" placeholder="Far Far West"></div>' +
     '<div class="field"><label>Дата</label><input type="date" name="date" value="' + h(source.date) + '" required></div>' +
     '<div class="field"><label>Начало, МСК</label><input type="time" name="start" value="' + h(source.start) + '" required></div>' +
     '<div class="field"><label>Конец, МСК</label><input type="time" name="end" value="' + h(source.end) + '" required></div>' +
     '<div class="full"><button type="button" class="button button-ghost small" data-action="whole-day">Отметить весь день (00:00–00:00)</button></div>' +
     '<label class="check-line" style="align-self:end;padding-bottom:9px"><input name="public" type="checkbox" ' + (source.public ? "checked" : "") + '>Показать зрителям</label>' +
-    '<p class="tiny-note full">Публичная галочка действует только на тип «Стрим». Коллабы по приглашению остаются внутренними.</p>' +
+    '<p class="tiny-note full">Публичная галочка работает для типов «Стрим» и «Выходной». Подробности коллабов для зрителей скрыты.</p>' +
     '<div class="form-actions full">' + (item ? '<button type="button" class="button button-subtle" data-action="delete-event" data-id="' + h(id) + '">Удалить</button>' : "") +
     '<button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Сохранить</button></div></form>');
 }
@@ -253,6 +263,7 @@ function inviteModal(uid) {
   const member = person(uid);
   if (!member) return;
   modalOpen('<h2 id="modalTitle">Пригласить ' + h(member.nick) + '</h2><p class="muted">Отправь предложение. После принятия обе участницы увидят коллаб в календаре.</p>' +
+    '<div class="links" style="margin:12px 0 20px">' + profileLinks(member) + '</div>' +
     '<form data-form="invite" data-uid="' + h(uid) + '" class="form-grid">' +
     '<div class="field full"><label>Игра или формат</label><input name="game" maxlength="90" required value="' + h(state.search.game) + '"></div>' +
     '<div class="field"><label>Дата</label><input type="date" name="date" required value="' + h(state.search.date) + '"></div>' +
@@ -267,25 +278,25 @@ async function publishPublicSchedule() {
   const cutoff = addDays(mskToday(), -30);
   const maxDate = addDays(mskToday(), 365);
   const events = own.docs.map((d) => d.data())
-    .filter((e) => e.type === "stream" && e.public === true && e.date >= cutoff && e.date <= maxDate)
+    .filter((e) => (e.type === "stream" || e.type === "off") && e.public === true && e.date >= cutoff && e.date <= maxDate)
     .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))
     .slice(0, 300)
-    .map((e) => ({ date: e.date, start: e.start, end: e.end, title: String(e.title || "").slice(0, 90) }));
+    .map((e) => ({ date: e.date, start: e.start, end: e.end, type: e.type, title: e.type === "off" ? "" : String(e.title || "").slice(0, 90) }));
   const memberSnap = await getDoc(doc(db, "members", state.uid));
   const m = memberSnap.data() || {};
   await setDoc(doc(db, "publicSchedules", state.uid), {
-    nick: m.nick || state.nick, twitch: m.twitch || "", events, updatedAt: serverTimestamp()
+    nick: m.nick || state.nick, twitch: m.twitch || "", telegram: m.telegram || "", youtube: m.youtube || "", tiktok: m.tiktok || "", discord: m.discord || "", events, updatedAt: serverTimestamp()
   });
 }
 async function saveEvent(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   if (!isDate(data.date) || !isTime(data.start) || !isTime(data.end) || (data.start === data.end && data.start !== "00:00")) throw new Error("Укажи корректные часы. Для полного дня используй 00:00–00:00.");
-  const validTypes = ["stream", "busy", "maybe", "free"];
+  const validTypes = ["stream", "off", "busy", "maybe", "free"];
   if (!validTypes.includes(data.type)) throw new Error("Неизвестный тип отметки.");
   const record = {
     ownerUid: state.uid, date: data.date, start: data.start, end: data.end,
-    type: data.type, title: data.type === "stream" ? (data.title || "Стрим").trim().slice(0, 90) : "",
-    public: data.type === "stream" && data.public === "on",
+    type: data.type, title: data.type === "stream" ? String(data.title || "").trim().slice(0, 90) : "",
+    public: ["stream", "off"].includes(data.type) && data.public === "on",
     updatedAt: serverTimestamp()
   };
   if (form.dataset.id) await updateDoc(doc(db, "slots", form.dataset.id), record);
@@ -301,10 +312,14 @@ async function saveProfile(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   const nick = String(data.nick || "").trim().slice(0, 40);
   if (nick.length < 2) throw new Error("Никнейм должен быть не короче двух символов.");
-  for (const key of ["twitch", "steam"]) if (data[key] && !safeUrl(data[key])) throw new Error("Для ссылок нужен полный адрес https://...");
+  for (const key of ["twitch", "steam", "telegram", "youtube", "tiktok", "discord"]) if (data[key] && !safeUrl(data[key])) throw new Error("Для ссылок нужен полный адрес https://...");
   const member = {
     nick, twitch: String(data.twitch || "").trim().slice(0, 300),
     steam: String(data.steam || "").trim().slice(0, 300),
+    telegram: String(data.telegram || "").trim().slice(0, 300),
+    youtube: String(data.youtube || "").trim().slice(0, 300),
+    tiktok: String(data.tiktok || "").trim().slice(0, 300),
+    discord: String(data.discord || "").trim().slice(0, 300),
     weekdays: String(data.weekdays || "").trim().slice(0, 80),
     weekend: String(data.weekend || "").trim().slice(0, 80),
     updatedAt: serverTimestamp()
@@ -357,10 +372,18 @@ async function respond(id, answer) {
   const batch = writeBatch(db);
   batch.update(doc(db, "proposals", id), { status: answer, respondedAt: serverTimestamp() });
   const lockRef = doc(db, "collabLocks", id);
+  const publicMarkers = [p.fromUid, p.toUid].map((uid) => doc(db, "publicCollabs", uid, "items", id));
   if (answer === "accepted") {
-    batch.set(lockRef, { fromUid: p.fromUid, toUid: p.toUid, date: p.date, start: p.start, end: p.end, game: p.game });
+    batch.set(lockRef, {
+      fromUid: p.fromUid, toUid: p.toUid, fromName: p.fromName, toName: p.toName,
+      date: p.date, start: p.start, end: p.end, game: p.game
+    });
+    // Only the generic label and hours are publicly projected; no game or participant names.
+    const marker = { date: p.date, start: p.start, end: p.end, type: "collab" };
+    for (const ref of publicMarkers) batch.set(ref, marker);
   } else if (p.status === "accepted") {
     batch.delete(lockRef);
+    for (const ref of publicMarkers) batch.delete(ref);
   }
   await batch.commit();
   flashMessage(answer === "accepted" ? "Коллаб подтверждён и добавлен в оба календаря." : answer === "declined" ? "Приглашение отклонено." : "Коллаб отменён.");
@@ -395,28 +418,6 @@ function setupScreen() {
   screen.innerHTML = '<section class="auth"><div class="panel"><p class="eyebrow">Подключение базы</p><h1>Сайт опубликован, Firebase ещё не подключён</h1><p class="sub">Для запуска кабинетов создай проект Firebase, включи Authentication и Firestore, вставь настройки веб-приложения в файл <code>collabs/firebase-config.js</code> на GitHub и опубликуй правила из <code>collabs/firestore.rules</code>.</p>' +
     '<div class="notice info">Весь исходный код сайта уже доступен на GitHub. Пошаговая инструкция — в файле <code>collabs/README.md</code>.</div></div></section>';
 }
-async function publicScreen(uid) {
-  nav.hidden = true;
-  $("logout").hidden = true;
-  $("identity").textContent = "Просмотр для зрителей";
-  screen.innerHTML = '<div class="empty">Загружаем публичное расписание…</div>';
-  try {
-    const snap = await getDoc(doc(db, "publicSchedules", uid));
-    if (!snap.exists()) {
-      screen.innerHTML = '<section class="public-page"><div class="empty"><strong>Расписание пока не опубликовано</strong>Автор ещё не создал публичных событий или ссылка неверна.</div><p><a href="./">← Войти в комнату</a></p></section>';
-      return;
-    }
-    const data = snap.data();
-    const events = Array.isArray(data.events) ? data.events.filter((e) => e.date >= addDays(mskToday(), -30)).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start)) : [];
-    const cards = events.map((e) => '<div class="public-event"><div><div class="public-date">' + h(dateLabel(e.date)) + '</div><div class="public-title">' + h(e.title) + '</div></div><div class="tag stream">' + fmtTime(e) + ' МСК</div></div>').join("");
-    const link = safeUrl(data.twitch);
-    screen.innerHTML = '<section class="public-page"><p class="eyebrow">Публичное расписание</p><h1>Стримы ' + h(data.nick || "стримера") + '</h1><p class="sub">Здесь только события, которые автор захотел показать сообществу. Время указано по Москве (МСК).</p>' +
-      '<div class="button-row" style="margin-bottom:18px">' + (link ? '<a class="button" href="' + link + '" target="_blank" rel="noopener noreferrer">Открыть Twitch ↗</a>' : "") + '<a class="button button-ghost" href="./">Войти в комнату</a></div>' +
-      '<div class="panel">' + (cards || '<div class="empty">Публичных стримов на ближайшее время нет.</div>') + '</div><p class="tiny-note" style="margin-top:18px">Внутренние отметки и приглашения на этой странице никогда не показываются.</p></section>';
-  } catch (error) {
-    screen.innerHTML = '<div class="notice bad">Не удалось открыть расписание: ' + h(readableError(error)) + '</div>';
-  }
-}
 function cleanup() {
   for (const unsub of state.unsubs) try { unsub(); } catch { /* noop */ }
   state.unsubs = [];
@@ -449,7 +450,7 @@ async function checkAccess(user) {
   if (!old.exists()) {
     await setDoc(memberRef, {
       nick: ((user.email || "Новая участница").split("@")[0].length >= 2 ? (user.email || "").split("@")[0] : "Новая участница").slice(0, 40),
-      twitch: "", steam: "", weekdays: "", weekend: "", updatedAt: serverTimestamp()
+      twitch: "", steam: "", telegram: "", youtube: "", tiktok: "", discord: "", weekdays: "", weekend: "", updatedAt: serverTimestamp()
     });
   }
   const fresh = await getDoc(memberRef);
@@ -467,7 +468,25 @@ async function boot() {
     auth = getAuth(app);
     db = getFirestore(app);
     const match = location.hash.match(/^#\/s\/([A-Za-z0-9_-]{12,128})$/);
-    if (match) { await publicScreen(match[1]); return; }
+    if (match) {
+      nav.hidden = true; $("logout").hidden = true;
+      await startPublicView({ db, uid: match[1], screen, identity: $("identity") });
+      return;
+    }
+    const modMatch = location.hash.match(/^#\/mod\/([A-Za-z0-9_-]{12,128})$/);
+    if (modMatch) {
+      let dispose = () => {};
+      onAuthStateChanged(auth, async (user) => {
+        dispose(); dispose = () => {};
+        nav.hidden = true; $("logout").hidden = true;
+        try {
+          dispose = await startModeratorView({ db, auth, uid: modMatch[1], screen, identity: $("identity"), user });
+        } catch (error) {
+          screen.innerHTML = '<div class="notice bad">Ошибка модераторского раздела: ' + h(readableError(error)) + '</div>';
+        }
+      });
+      return;
+    }
     onAuthStateChanged(auth, async (user) => {
       cleanup();
       state.authorized = false;
@@ -483,6 +502,18 @@ async function boot() {
     screen.innerHTML = '<div class="notice bad">Ошибка подключения Firebase: ' + h(readableError(error)) + '</div>';
   }
 }
+document.addEventListener("change", (event) => {
+  const select = event.target.closest('form[data-form="event"] select[name="type"]');
+  if (!select) return;
+  const form = select.form;
+  if (select.value === "off") {
+    form.elements.start.value = "00:00";
+    form.elements.end.value = "00:00";
+    form.elements.public.checked = true;
+  } else if (select.value === "busy" || select.value === "maybe" || select.value === "free") {
+    form.elements.public.checked = false;
+  }
+});
 document.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-action],[data-tab]");
   if (!target) return;
@@ -521,6 +552,11 @@ document.addEventListener("click", async (event) => {
     if (action === "inbox-pending" || action === "inbox-all") {
       state.inboxFilter = action === "inbox-all" ? "all" : "pending"; render(); return;
     }
+    if (action === "copy-moderator") {
+      try { await navigator.clipboard.writeText(moderatorLink(state.uid)); flashMessage("Ссылка для модератора скопирована."); }
+      catch { flashMessage("Скопируй модераторскую ссылку из профиля.", true); }
+      return;
+    }
     if (action === "copy-public") {
       try { await navigator.clipboard.writeText(publicLink(state.uid)); flashMessage("Публичная ссылка скопирована."); }
       catch { flashMessage("Скопируй ссылку из поля выше.", true); }
@@ -554,7 +590,7 @@ document.addEventListener("submit", async (event) => {
   if (button) button.disabled = true;
   try {
     const type = form.dataset.form;
-    if (type === "login") {
+    if (type === "login" || type === "mod-login") {
       const data = Object.fromEntries(new FormData(form).entries());
       await signInWithEmailAndPassword(auth, String(data.email || "").trim(), String(data.password || ""));
     } else if (type === "search") {
