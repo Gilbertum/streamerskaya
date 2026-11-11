@@ -267,9 +267,10 @@ function eventModal(id) {
   const item = state.slots.find((x) => x.id === id && x.ownerUid === state.uid);
   const source = item || { date: state.date, start: "20:00", end: "23:00", type: "stream", title: "", public: true };
   const option = (value, label) => '<option value="' + value + '"' + (source.type === value ? ' selected' : "") + '>' + label + '</option>';
+  const legacyType = item && ["busy", "maybe", "free"].includes(source.type) ? option(source.type, "Ранее созданная отметка: " + typeName(source.type)) : "";
   modalOpen('<h2 id="modalTitle">' + (item ? "Редактировать событие" : "Новое событие") + '</h2><p class="muted">Дату и часы вводим по Москве. Пустой день считается свободным.</p>' +
     '<form data-form="event" data-id="' + h(id || "") + '" class="form-grid"><div class="field full"><label>Тип отметки</label><select name="type">' +
-    option("stream", "Стрим / запланированная игра") + option("off", "Выходной") + (!item ? option("wish", "✦ Хочу коллабу") : "") + '</select></div>' +
+    legacyType + option("stream", "Стрим / запланированная игра") + option("off", "Выходной") + (!item ? option("wish", "✦ Хочу коллабу") : "") + '</select></div>' +
     '<div class="field full"><label>Игра / название стрима (для типа «Стрим»)</label><input name="title" maxlength="90" value="' + h(source.title || "") + '" placeholder="Far Far West"></div>' +
     '<div class="field full"><label>Примечания для участниц и модераторов (не видны зрителям)</label><textarea name="details" maxlength="500" placeholder="Например, гости, план или примечания">' + h(source.details || "") + '</textarea></div>' +
     '<div class="field"><label>Дата</label><input type="date" name="date" value="' + h(source.date) + '" required></div>' +
@@ -281,7 +282,7 @@ function eventModal(id) {
     '<div class="form-actions full">' + (item ? '<button type="button" class="button button-subtle" data-action="delete-event" data-id="' + h(id) + '">Удалить</button>' : "") +
     '<button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Сохранить</button></div></form>');
 }
-function wishTimeRow(index, date = state.date, start = "20:00", end = "23:00") {
+function wishTimeRow(index, date = (state.date >= mskToday() ? state.date : mskToday()), start = "20:00", end = "23:00") {
   return '<div class="wish-time-row" data-wish-row><span class="wish-number">Вариант ' + (index + 1) + '</span>' +
     '<div class="field"><label>Дата</label><input type="date" name="wishDate" value="' + h(date) + '" required></div>' +
     '<div class="field"><label>Начало, МСК</label><input type="time" name="wishStart" value="' + h(start) + '" required></div>' +
