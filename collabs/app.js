@@ -1,4 +1,5 @@
 import { firebaseConfig } from "./firebase-config.js";
+import { twitchPanelHtml, refreshTwitch, startTwitchAuthorization } from "./twitch-panel.js";
 import { startPublicView } from "./views.js";
 import { startModeratorV3 } from "./moderator-v3.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
@@ -152,9 +153,14 @@ function renderCalendar() {
     if (date.slice(0, 7) !== state.month) classes.push("outside");
     if (date === state.date) classes.push("selected");
     if (date === mskToday()) classes.push("today");
-    dayButtons += '<button type="button" class="' + classes.join(" ") + '" data-action="select-day" data-date="' + date + '"><span class="day-number">' + Number(date.slice(8)) + '</span><span class="dots">' +
-      items.slice(0, 5).map((item) => '<span class="dot ' + h(item.type) + '"></span>').join("") + '</span>' +
-      (items.length > 0 ? '<span class="day-count">' + items.length + " событий</span>" : "") + '</button>';
+    const shortName = (item) => item.type === "stream" ? "Стрим" : item.type === "off" ? "Выходной"
+      : item.type === "collab" ? "Коллаба" : item.type === "maybe" ? "Под вопросом" : item.type === "busy" ? "Занято" : "Свободно";
+    dayButtons += '<button type="button" class="' + classes.join(" ") + '" data-action="select-day" data-date="' + date + '"><span class="day-number">' + Number(date.slice(8)) + '</span>' +
+      '<span class="calendar-day-labels">' + items.slice(0, 3).map((item) =>
+        '<span class="calendar-day-label ' + h(item.type) + '" title="' + h(item.type === "stream" ? (item.title || "Стрим") : item.type === "collab" ? (item.game || "Коллаба") : shortName(item)) + '">' +
+        h(shortName(item)) + '</span>').join("") +
+      (items.length > 3 ? '<span class="calendar-more">+' + (items.length - 3) + '</span>' : "") +
+      '</span></button>';
   }
   const events = myItems(state.date).map((item) => {
     const isLock = item.kind === "lock";
@@ -167,15 +173,16 @@ function renderCalendar() {
       '<div style="margin-top:7px"><span class="tag ' + h(item.type) + '">' + typeName(item.type) + '</span>' +
       (!isLock && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
   }).join("");
-  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Добавляй стримы, закрывай неудобные дни и отмечай сомнительные окна. Остальное считается свободным для коллаба.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
-    '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
+  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и выходные, а через «Хочу коллабу» отправляй одной заявкой несколько вариантов времени выбранным участницам.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
+    twitchPanelHtml(state.members) + '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
     new Date(year, month - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" }) +
     '</h2><div class="button-row"><button class="button button-ghost small" data-action="previous-month">←</button><button class="button button-ghost small" data-action="current-month">Сегодня</button><button class="button button-ghost small" data-action="next-month">→</button></div></div><div class="calendar-week">' +
     ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((x) => "<span>" + x + "</span>").join("") +
-    '</div><div class="calendar-grid">' + dayButtons + '</div><p class="tiny-note" style="margin:15px 0 0">Розовый — стрим / занято · жёлтый — под вопросом · зелёный — доступно · синий — подтверждённый коллаб.</p></section>' +
+    '</div><div class="calendar-grid">' + dayButtons + '</div><p class="tiny-note" style="margin:15px 0 0">Розовый — стрим · серо-синий — выходной · синий — коллаба. Открой день, чтобы увидеть подробности.</p></section>' +
     '<section class="panel"><div class="section-bar"><h2 style="text-transform:capitalize">' + h(dateLabel(state.date)) + '</h2><button class="button button-ghost small" data-action="new-event">+ Событие</button></div>' +
     (events || '<div class="empty"><strong>Планов нет</strong>В этот день ты свободна для предложений.</div>') +
     '<div class="mini-spacer"></div><div class="notice info">Подтверждённые коллабы появляются здесь автоматически. Личные отметки видны только участникам комнаты.</div></section></div>';
+  refreshTwitch(state.members, () => { if (state.authorized && state.tab === "calendar") renderCalendar(); });
 }
 function renderSearch() {
   const request = state.search;
@@ -254,7 +261,7 @@ function eventModal(id) {
   const option = (value, label) => '<option value="' + value + '"' + (source.type === value ? ' selected' : "") + '>' + label + '</option>';
   modalOpen('<h2 id="modalTitle">' + (item ? "Редактировать событие" : "Новое событие") + '</h2><p class="muted">Дату и часы вводим по Москве. Пустой день считается свободным.</p>' +
     '<form data-form="event" data-id="' + h(id || "") + '" class="form-grid"><div class="field full"><label>Тип отметки</label><select name="type">' +
-    option("stream", "Стрим / запланированная игра") + option("off", "Выходной (можно показать зрителям)") + option("busy", "Не могу коллабиться") + option("maybe", "Под вопросом") + option("free", "Точно свободна") + '</select></div>' +
+    option("stream", "Стрим / запланированная игра") + option("off", "Выходной") + (!item ? option("wish", "✦ Хочу коллабу") : "") + '</select></div>' +
     '<div class="field full"><label>Игра / название стрима (для типа «Стрим»)</label><input name="title" maxlength="90" value="' + h(source.title || "") + '" placeholder="Far Far West"></div>' +
     '<div class="field full"><label>Примечания для участниц и модераторов (не видны зрителям)</label><textarea name="details" maxlength="500" placeholder="Например, гости, план или примечания">' + h(source.details || "") + '</textarea></div>' +
     '<div class="field"><label>Дата</label><input type="date" name="date" value="' + h(source.date) + '" required></div>' +
@@ -601,6 +608,7 @@ document.addEventListener("change", (event) => {
   const select = event.target.closest('form[data-form="event"] select[name="type"]');
   if (!select) return;
   const form = select.form;
+  if (select.value === "wish") { wishModal(); return; }
   if (select.value === "off") {
     form.elements.start.value = "00:00";
     form.elements.end.value = "00:00";
@@ -643,6 +651,9 @@ document.addEventListener("click", async (event) => {
     }
     if (action === "current-month") { state.date = mskToday(); state.month = state.date.slice(0, 7); render(); return; }
     if (action === "new-event") { eventModal(); return; }
+    if (action === "new-wish") { wishModal(); return; }
+    if (action === "connect-twitch") { startTwitchAuthorization(); return; }
+    if (action === "refresh-twitch") { await refreshTwitch(state.members, () => { if (state.tab === "calendar") renderCalendar(); }, true); return; }
     if (action === "whole-day") {
       const form = modal.querySelector('form[data-form="event"]');
       if (form) { form.elements.start.value = "00:00"; form.elements.end.value = "00:00"; }
