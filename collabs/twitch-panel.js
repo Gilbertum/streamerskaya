@@ -5,7 +5,7 @@ import { twitchClientId } from "./firebase-config.js";
 const AUTH_KEY = "collab-room-twitch-session-v1";
 const STATE_KEY = "collab-room-twitch-state-v1";
 const items = new Map();
-let refreshedAt = 0, lastKey = "", loading = false, errorText = "";
+let refreshedAt = 0, lastKey = "", loading = false, errorText = "", validatedAt = 0;
 const enc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const validImage = (s) => {
@@ -59,7 +59,7 @@ export function twitchPanelHtml(members) {
   const sorted = [...people].sort((a,b) => Number(items.get(b.login)?.online) - Number(items.get(a.login)?.online) || a.nick.localeCompare(b.nick,"ru"));
   const channels = sorted.map((p) => {
     const meta = items.get(p.login);
-    const known = !!meta && connected;
+    const known = !!meta && connected && !errorText && Date.now() - refreshedAt < 300000;
     const status = known ? (meta.online ? '<span class="twitch-status live">● В эфире</span>' : '<span class="twitch-status offline">● Не в эфире</span>')
       : '<span class="twitch-status unknown">● Статус не проверен</span>';
     const avatar = validImage(meta?.avatar);
@@ -92,6 +92,22 @@ export async function refreshTwitch(members, onUpdate, force = false) {
   loading = true; errorText = "";
   const token = access();
   try {
+    // Twitch requires validating user tokens at startup and at least hourly.
+    if (Date.now() - validatedAt >= 3600000) {
+      const validation = await fetch("https://id.twitch.tv/oauth2/validate", {
+        headers: { "Authorization": "OAuth " + token }, cache: "no-store"
+      });
+      if (!validation.ok) {
+        sessionStorage.removeItem(AUTH_KEY);
+        throw new Error("Авторизация Twitch истекла. Подключи Twitch повторно.");
+      }
+      const details = await validation.json();
+      if (details.client_id !== twitchClientId) {
+        sessionStorage.removeItem(AUTH_KEY);
+        throw new Error("Twitch вернул токен другого приложения.");
+      }
+      validatedAt = Date.now();
+    }
     const headers = { "Client-Id": twitchClientId, "Authorization": "Bearer " + token };
     const get = async (endpoint) => {
       const params = new URLSearchParams();
