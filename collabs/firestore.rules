@@ -180,24 +180,66 @@ service cloud.firestore {
       allow list, create, update, delete: if false;
     }
 
-    // По одному обезличенному маркеру на каждого участника подтверждённого коллаба.
-    // Публично читаются ТОЛЬКО тип и дата/часы, без игры, имён и сообщения.
-    match /publicCollabs/{ownerUid}/items/{proposalId} {
-      allow get, list: if true;
-      allow create: if member()
-        && request.resource.data.keys().hasAll(['type','date','start','end'])
-        && request.resource.data.keys().hasOnly(['type','date','start','end'])
-        && request.resource.data.type == 'collab'
-        && goodWindow(request.resource.data)
-        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.status == 'accepted'
-        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid == request.auth.uid
-        && ownerUid in [
+    // Модератор видит только безопасные анонсы ожидающих приглашений (без переписки).
+    function validPendingPreview(d, proposalId, ownerUid) {
+      let p = getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data;
+      return d.keys().hasAll(['fromUid','toUid','fromName','toName','date','start','end','game'])
+        && d.keys().hasOnly(['fromUid','toUid','fromName','toName','date','start','end','game'])
+        && d.fromUid == p.fromUid && d.toUid == p.toUid
+        && d.fromName == p.fromName && d.toName == p.toName
+        && d.date == p.date && d.start == p.start && d.end == p.end && d.game == p.game
+        && p.status == 'pending' && p.fromUid == request.auth.uid
+        && ownerUid in [p.fromUid,p.toUid];
+    }
+
+    match /moderatorPending/{ownerUid}/items/{proposalId} {
+      allow read: if isModeratorOf(ownerUid);
+      allow create: if member() && validPendingPreview(request.resource.data, proposalId, ownerUid);
+      allow delete: if member()
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.status in ['accepted','declined','cancelled']
+        && request.auth.uid in [
           getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.fromUid,
           getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid
         ]
-        && request.resource.data.date == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.date
-        && request.resource.data.start == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.start
-        && request.resource.data.end == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.end;
+        && ownerUid in [
+          getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.fromUid,
+          getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid
+        ];
+      allow update: if false;
+    }
+
+    // Зритель видит только то, что участник коллабы явно раскрыл для СВОЕГО канала.
+    // Игра/партнёр по умолчанию пустые, сообщения не сохраняются в публичной коллекции.
+    function validPublicMarker(d, ownerUid, proposalId) {
+      let lock = getAfter(/databases/$(database)/documents/collabLocks/$(proposalId)).data;
+      return d.keys().hasAll(['type','date','start','end','game','partner'])
+        && d.keys().hasOnly(['type','date','start','end','game','partner'])
+        && d.type == 'collab' && goodWindow(d)
+        && ownerUid in [lock.fromUid,lock.toUid]
+        && d.date == lock.date && d.start == lock.start && d.end == lock.end
+        && d.game is string && d.game.size() <= 90
+        && (d.game == '' || d.game == lock.game)
+        && d.partner is string && d.partner.size() <= 40;
+    }
+
+    match /publicCollabs/{ownerUid}/items/{proposalId} {
+      allow get, list: if true;
+
+      // Получатель принимает приглашение и атомарно создаёт пустые маркеры для обоих.
+      // Также каждый участник может восстановить свой собственный маркер из старой коллабы.
+      allow create: if member() && validPublicMarker(request.resource.data, ownerUid, proposalId)
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.status == 'accepted'
+        && (
+          (request.auth.uid == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid
+            && request.resource.data.game == '' && request.resource.data.partner == '')
+          ||
+          (ownerUid == request.auth.uid)
+        );
+
+      // Пользователь не может менять публичные поля партнёра.
+      allow update: if member() && me(ownerUid)
+        && validPublicMarker(request.resource.data, ownerUid, proposalId);
+
       allow delete: if member()
         && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.status == 'cancelled'
         && request.auth.uid in [
@@ -208,7 +250,6 @@ service cloud.firestore {
           getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.fromUid,
           getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid
         ];
-      allow update: if false;
     }
 
     match /{document=**} { allow read, write: if false; }
