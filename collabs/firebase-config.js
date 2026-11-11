@@ -9,3 +9,8 @@ export const firebaseConfig = {
   messagingSenderId: "405218992081",
   appId: "1:405218992081:web:cd140d1c36c6f0fa390af0"
 };
+
+// Twitch Developer Console → Your Console → Applications → Client ID.
+// Это публичный Client ID (НЕ Client Secret). Пока пусто, панель покажет ссылки,
+// а автоматические онлайн-статусы и аватарки станут доступны после настройки.
+export const twitchClientId = "";
