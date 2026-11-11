@@ -273,6 +273,90 @@ function eventModal(id) {
     '<div class="form-actions full">' + (item ? '<button type="button" class="button button-subtle" data-action="delete-event" data-id="' + h(id) + '">Удалить</button>' : "") +
     '<button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Сохранить</button></div></form>');
 }
+function wishTimeRow(index, date = state.date, start = "20:00", end = "23:00") {
+  return '<div class="wish-time-row" data-wish-row><span class="wish-number">Вариант ' + (index + 1) + '</span>' +
+    '<div class="field"><label>Дата</label><input type="date" name="wishDate" value="' + h(date) + '" required></div>' +
+    '<div class="field"><label>Начало, МСК</label><input type="time" name="wishStart" value="' + h(start) + '" required></div>' +
+    '<div class="field"><label>Конец, МСК</label><input type="time" name="wishEnd" value="' + h(end) + '" required></div>' +
+    '<button type="button" class="button button-ghost tiny" data-action="remove-wish-row" aria-label="Удалить вариант">×</button></div>';
+}
+function wishModal() {
+  const others = state.members.filter((member) => member.id !== state.uid).sort((a, b) => a.nick.localeCompare(b.nick, "ru"));
+  const people = others.map((member) => {
+    const status = availability(member.id, { date: state.date, start: "20:00", end: "23:00" });
+    const text = status === "free" ? "Нет занятости в выбранный день" : "Есть отметки занятости — предложить можно на другое время";
+    const dm = safeUrl(member.telegramDM);
+    return '<label class="wish-person"><input type="checkbox" name="wishRecipient" value="' + h(member.id) + '">' +
+      '<span class="wish-person-details"><strong>' + h(member.nick || "Участница") + '</strong>' +
+      '<small>' + h(text) + '</small></span></label>' +
+      (dm ? '<a class="wish-contact" href="' + dm + '" target="_blank" rel="noopener noreferrer">ЛС ↗</a>' : "");
+  }).join("");
+  modalOpen('<h2 id="modalTitle">✦ Хочу коллабу</h2><p class="muted">Укажи игру и до пяти вариантов времени. Выбери участниц галочками — каждая получит одно приглашение и сама выберет подходящий вариант.</p>' +
+    '<form data-form="wish"><div class="field"><label>Игра или идея *</label><input type="text" name="game" maxlength="90" placeholder="Например, The Forest" required></div>' +
+    '<div class="section-bar" style="margin:18px 0 9px"><h3>Варианты даты и времени</h3><button class="button button-ghost small" type="button" data-action="add-wish-row">+ Ещё вариант</button></div>' +
+    '<div id="wishRows" class="wish-rows">' + wishTimeRow(0) + '</div>' +
+    '<div class="section-bar" style="margin:22px 0 9px"><h3>Кого пригласить</h3><span class="tiny-note">До 10 участниц</span></div>' +
+    (people ? '<div class="wish-people">' + people + '</div>' : '<div class="notice info">В комнате пока нет других участниц.</div>') +
+    '<div class="field" style="margin-top:17px"><label>Сообщение (необязательно)</label><textarea name="message" maxlength="500" placeholder="Девочки, кто за совместный забег?"></textarea></div>' +
+    '<p class="tiny-note" style="margin:12px 0">Приглашения отправятся выбранным участницам после нажатия кнопки. Ожидающие ответы не блокируют время.</p>' +
+    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Отмена</button>' +
+    '<button type="submit" class="button">Отправить приглашения</button></div></form>');
+}
+async function sendWish(form) {
+  const game = String(form.elements.game.value || "").trim().slice(0, 90);
+  if (!game) throw new Error("Укажи игру или идею коллаба.");
+  const rows = [...form.querySelectorAll("[data-wish-row]")];
+  if (!rows.length || rows.length > 5) throw new Error("Можно выбрать от одного до пяти вариантов времени.");
+  const options = rows.map((row) => ({
+    date: row.querySelector('[name="wishDate"]').value,
+    start: row.querySelector('[name="wishStart"]').value,
+    end: row.querySelector('[name="wishEnd"]').value
+  }));
+  for (const option of options) {
+    if (!isDate(option.date) || !isTime(option.start) || !isTime(option.end) || option.start === option.end)
+      throw new Error("В каждом варианте должны быть правильная дата и разные часы начала и конца.");
+    if (option.date < mskToday()) throw new Error("Вариант не может быть в прошлом.");
+  }
+  if (new Set(options.map((o) => o.date + o.start + o.end)).size !== options.length)
+    throw new Error("Убери повторяющиеся варианты даты и времени.");
+  const selected = [...form.querySelectorAll('[name="wishRecipient"]:checked')].map((x) => x.value);
+  if (!selected.length) throw new Error("Выбери хотя бы одну участницу.");
+  if (selected.length > 10) throw new Error("За один раз можно пригласить максимум 10 участниц.");
+  if (!options.some((o) => availability(state.uid, o) !== "busy"))
+    throw new Error("Все выбранные варианты заняты в твоём календаре.");
+  const message = String(form.elements.message.value || "").trim().slice(0, 500);
+  const success = [], failed = [];
+  for (const uid of selected) {
+    const member = person(uid);
+    if (!member || uid === state.uid) { failed.push("Неизвестная участница"); continue; }
+    if (!options.some((o) => availability(uid, o) !== "busy" && availability(state.uid, o) !== "busy")) {
+      failed.push(member.nick + ": выбранные окна заняты"); continue;
+    }
+    if (proposals().some((p) => p.status === "pending" && p.fromUid === state.uid && p.toUid === uid &&
+      p.game === game && p.date === options[0].date)) {
+      failed.push(member.nick + ": похожее приглашение уже отправлено"); continue;
+    }
+    const ref = doc(collection(db, "proposals"));
+    const first = options[0];
+    const preview = { fromUid: state.uid, toUid: uid, fromName: state.nick, toName: member.nick,
+      date: first.date, start: first.start, end: first.end, game };
+    const batch = writeBatch(db);
+    batch.set(ref, { ...preview, timeOptions: options, message, status: "pending",
+      createdAt: serverTimestamp(), respondedAt: null, replacesId: "" });
+    batch.set(doc(db, "moderatorPending", state.uid, "items", ref.id), preview);
+    batch.set(doc(db, "moderatorPending", uid, "items", ref.id), preview);
+    try { await batch.commit(); success.push(member.nick); }
+    catch (error) { failed.push(member.nick + ": " + readableError(error)); }
+  }
+  if (success.length) {
+    modalClose();
+    state.tab = "inbox"; state.inboxFilter = "all";
+    render();
+    flashMessage("Приглашения отправлены: " + success.join(", ") + "." +
+      (failed.length ? " Не отправлены: " + failed.join("; ") : ""), failed.length > 0);
+  } else throw new Error("Ни одно приглашение не отправлено. " + failed.join("; "));
+}
+
 function inviteModal(uid, replacesId = "") {
   const member = person(uid);
   const previous = replacesId ? state.locks.find((x) => x.id === replacesId) : null;
@@ -652,6 +736,25 @@ document.addEventListener("click", async (event) => {
     if (action === "current-month") { state.date = mskToday(); state.month = state.date.slice(0, 7); render(); return; }
     if (action === "new-event") { eventModal(); return; }
     if (action === "new-wish") { wishModal(); return; }
+    if (action === "add-wish-row") {
+      const list = $("wishRows");
+      if (!list) return;
+      const count = list.querySelectorAll("[data-wish-row]").length;
+      if (count >= 5) { flashMessage("Максимум пять вариантов.", true); return; }
+      const last = list.lastElementChild;
+      const date = last?.querySelector('[name="wishDate"]')?.value || state.date;
+      const start = last?.querySelector('[name="wishStart"]')?.value || "20:00";
+      const end = last?.querySelector('[name="wishEnd"]')?.value || "23:00";
+      list.insertAdjacentHTML("beforeend", wishTimeRow(count, addDays(date, 1), start, end));
+      return;
+    }
+    if (action === "remove-wish-row") {
+      const rows = $("wishRows")?.querySelectorAll("[data-wish-row]");
+      if (rows?.length <= 1) { flashMessage("Оставь хотя бы один вариант.", true); return; }
+      target.closest("[data-wish-row]")?.remove();
+      $("wishRows")?.querySelectorAll(".wish-number").forEach((span, i) => { span.textContent = "Вариант " + (i + 1); });
+      return;
+    }
     if (action === "connect-twitch") { startTwitchAuthorization(); return; }
     if (action === "refresh-twitch") { await refreshTwitch(state.members, () => { if (state.tab === "calendar") renderCalendar(); }, true); return; }
     if (action === "whole-day") {
@@ -730,6 +833,7 @@ document.addEventListener("submit", async (event) => {
     else if (state.authorized && type === "collab-visibility") await saveCollabVisibility(form);
     else if (state.authorized && type === "profile") await saveProfile(form);
     else if (state.authorized && type === "invite") await sendInvite(form);
+    else if (state.authorized && type === "wish") await sendWish(form);
   } catch (error) { flashMessage(readableError(error), true); console.error(error); }
   finally { state.busy = false; if (button?.isConnected) button.disabled = false; }
 });
