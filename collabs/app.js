@@ -80,7 +80,7 @@ function modalClose() {
   modal.hidden = true;
   $("modalContent").innerHTML = "";
 }
-function fmtTime(obj) { return h(obj.start) + "–" + h(obj.end) + (obj.end <= obj.start ? " (+1 день)" : ""); }
+function fmtTime(obj) { return obj.start === "00:00" && obj.end === "00:00" ? "Весь день" : h(obj.start) + "–" + h(obj.end) + (obj.end <= obj.start ? " (+1 день)" : ""); }
 function person(id) { return state.members.find((m) => m.id === id); }
 function nameOf(id) { return person(id)?.nick || "Стример"; }
 function profileLinks(member) {
@@ -243,6 +243,7 @@ function eventModal(id) {
     '<div class="field"><label>Дата</label><input type="date" name="date" value="' + h(source.date) + '" required></div>' +
     '<div class="field"><label>Начало, МСК</label><input type="time" name="start" value="' + h(source.start) + '" required></div>' +
     '<div class="field"><label>Конец, МСК</label><input type="time" name="end" value="' + h(source.end) + '" required></div>' +
+    '<div class="full"><button type="button" class="button button-ghost small" data-action="whole-day">Отметить весь день (00:00–00:00)</button></div>' +
     '<label class="check-line" style="align-self:end;padding-bottom:9px"><input name="public" type="checkbox" ' + (source.public ? "checked" : "") + '>Показать зрителям</label>' +
     '<p class="tiny-note full">Публичная галочка действует только на тип «Стрим». Коллабы по приглашению остаются внутренними.</p>' +
     '<div class="form-actions full">' + (item ? '<button type="button" class="button button-subtle" data-action="delete-event" data-id="' + h(id) + '">Удалить</button>' : "") +
@@ -278,7 +279,7 @@ async function publishPublicSchedule() {
 }
 async function saveEvent(form) {
   const data = Object.fromEntries(new FormData(form).entries());
-  if (!isDate(data.date) || !isTime(data.start) || !isTime(data.end) || data.start === data.end) throw new Error("Укажи корректную дату и разные часы начала и конца.");
+  if (!isDate(data.date) || !isTime(data.start) || !isTime(data.end) || (data.start === data.end && data.start !== "00:00")) throw new Error("Укажи корректные часы. Для полного дня используй 00:00–00:00.");
   const validTypes = ["stream", "busy", "maybe", "free"];
   if (!validTypes.includes(data.type)) throw new Error("Неизвестный тип отметки.");
   const record = {
@@ -510,6 +511,11 @@ document.addEventListener("click", async (event) => {
     }
     if (action === "current-month") { state.date = mskToday(); state.month = state.date.slice(0, 7); render(); return; }
     if (action === "new-event") { eventModal(); return; }
+    if (action === "whole-day") {
+      const form = modal.querySelector('form[data-form="event"]');
+      if (form) { form.elements.start.value = "00:00"; form.elements.end.value = "00:00"; }
+      return;
+    }
     if (action === "edit-event") { eventModal(target.dataset.id); return; }
     if (action === "invite") { inviteModal(target.dataset.uid); return; }
     if (action === "inbox-pending" || action === "inbox-all") {
