@@ -398,7 +398,7 @@ service cloud.firestore {
         && d.organizerName == g.organizerName
         && d.game == g.game
         && d.participants is list
-        && d.participants.size() == g.inviteeUids.size() + 1
+        && d.participants == [g.organizerName].concat(g.inviteeNames)
         && diaryOwner(g,ownerUid)
         && (
           (g.status == 'collecting' && d.status == 'collecting'
@@ -433,7 +433,8 @@ service cloud.firestore {
         && d.participantsUids is list
         && d.participantsUids.size() == g.inviteeUids.size() + 1
         && d.participants is list && d.participants.size() == d.participantsUids.size()
-        && d.participantsUids[0] == g.organizerUid
+        && d.participantsUids == [g.organizerUid].concat(g.inviteeUids)
+        && d.participants == [g.organizerName].concat(g.inviteeNames)
         && d.date == g.options[g.chosenIndex].date
         && d.start == g.options[g.chosenIndex].start
         && d.end == g.options[g.chosenIndex].end;
