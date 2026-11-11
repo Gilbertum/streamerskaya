@@ -1,5 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { twitchPanelHtml, refreshTwitch, startTwitchAuthorization } from "./twitch-panel.js";
+import { streamersHtml, streamerDayHtml } from "./streamers-view.js";
+import { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, finalizeGroupWish, cancelGroupWish } from "./group-wishes.js";
 import { startPublicView } from "./views.js";
 import { startModeratorV3 } from "./moderator-v3.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
@@ -14,7 +16,8 @@ const modal = $("modal");
 let auth = null, db = null;
 const state = {
   uid: null, nick: "", member: null, authorized: false, busy: false,
-  members: [], slots: [], locks: [], sent: [], received: [],
+  members: [], slots: [], locks: [], groupCalendar: [], groupsOrganized: [], groupsInvited: [], sent: [], received: [],
+  streamerSelectedUid: null, streamerMonth: mskToday().slice(0,7),
   unsubs: [], tab: "calendar", inboxFilter: "pending",
   date: mskToday(), month: mskToday().slice(0, 7),
   search: { date: mskToday(), start: "20:00", end: "23:00", game: "" }
@@ -108,7 +111,9 @@ function myItems(date) {
     .map((item) => ({ ...item, kind: "slot" }));
   const locks = state.locks.filter((item) => (item.fromUid === state.uid || item.toUid === state.uid) && item.date === date)
     .map((item) => ({ ...item, id: item.id, type: "collab", kind: "lock" }));
-  return [...slots, ...locks].sort((a, b) => a.start.localeCompare(b.start));
+  const groups = state.groupCalendar.filter(item => item.participantsUids?.includes(state.uid) && item.date === date)
+    .map(item => ({ ...item, id: item.id, type: "collab", kind: "group" }));
+  return [...slots, ...locks, ...groups].sort((a,b)=>a.start.localeCompare(b.start));
 }
 function availability(memberId, request, ignoreLockId = "") {
   const problems = [];
@@ -120,12 +125,14 @@ function availability(memberId, request, ignoreLockId = "") {
     if (item.id === ignoreLockId || (item.fromUid !== memberId && item.toUid !== memberId)) continue;
     if (overlaps(item, request)) problems.push("busy");
   }
+  if (state.groupCalendar.some(g => g.participantsUids?.includes(memberId) && overlaps(g,request))) problems.push("busy");
   if (problems.includes("busy")) return "busy";
   if (problems.includes("maybe")) return "maybe";
   return "free"; // Если ничего не отмечено, можно предложить коллаб.
 }
 function countPending() {
-  return state.received.filter((p) => p.status === "pending").length;
+  return state.received.filter(p=>p.status==="pending").length +
+    state.groupsInvited.filter(g=>g.status==="collecting"&&!Array.isArray(g.responses?.[state.uid])).length;
 }
 function render() {
   if (!state.authorized) return;
@@ -134,7 +141,8 @@ function render() {
   $("identity").textContent = state.nick;
   $("pendingCount").textContent = countPending() ? String(countPending()) : "";
   for (const button of nav.querySelectorAll("[data-tab]")) button.classList.toggle("active", button.dataset.tab === state.tab);
-  if (state.tab === "search") renderSearch();
+  if (state.tab === "streamers") renderStreamers();
+  else if (state.tab === "search") renderSearch();
   else if (state.tab === "inbox") renderInbox();
   else if (state.tab === "profile") renderProfile();
   else renderCalendar();
@@ -163,18 +171,22 @@ function renderCalendar() {
       '</span></button>';
   }
   const events = myItems(state.date).map((item) => {
-    const isLock = item.kind === "lock";
-    const title = isLock ? ("Коллаб: " + item.game) : (item.type === "stream" ? (item.title || "Без названия") : typeName(item.type));
-    const other = isLock ? (' · с ' + nameOf(item.fromUid === state.uid ? item.toUid : item.fromUid)) : "";
-    const controls = isLock
+    const isLock = item.kind === "lock", isGroup = item.kind === "group";
+    const title = isLock || isGroup ? ((isGroup ? "Групповая коллаба: " : "Коллаб: ") + (item.game||"Без названия"))
+      : (item.type === "stream" ? (item.title || "Без названия") : typeName(item.type));
+    const other = isGroup ? " · " + (item.participants||[]).join(", ") :
+      isLock ? (' · с ' + nameOf(item.fromUid === state.uid ? item.toUid : item.fromUid)) : "";
+    const controls = isGroup
+      ? '<div class="event-actions"><button class="button button-subtle tiny" data-action="group-cancel" data-id="' + h(item.id) + '">Отменить для всех</button></div>'
+      : isLock
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="visibility-collab" data-id="' + h(item.id) + '">Зрителям</button><button class="button button-ghost tiny" data-action="move-collab" data-id="' + h(item.id) + '">Перенести</button><button class="button button-subtle tiny" data-action="cancel-collab" data-id="' + h(item.id) + '">Отменить</button></div>'
       : '<div class="event-actions"><button class="button button-ghost tiny" data-action="edit-event" data-id="' + h(item.id) + '">Изменить</button><button class="button button-subtle tiny" data-action="delete-event" data-id="' + h(item.id) + '">Удалить</button></div>';
     return '<div class="event"><div><div class="event-title">' + h(title) + '</div><div class="event-when">' + fmtTime(item) + h(other) + '</div>' +
       '<div style="margin-top:7px"><span class="tag ' + h(item.type) + '">' + typeName(item.type) + '</span>' +
-      (!isLock && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
+      (!isLock && !isGroup && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
   }).join("");
   screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и выходные, а через «Хочу коллабу» отправляй одной заявкой несколько вариантов времени выбранным участницам.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
-    twitchPanelHtml(state.members) + '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
+    '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
     new Date(year, month - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" }) +
     '</h2><div class="button-row"><button class="button button-ghost small" data-action="previous-month">←</button><button class="button button-ghost small" data-action="current-month">Сегодня</button><button class="button button-ghost small" data-action="next-month">→</button></div></div><div class="calendar-week">' +
     ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((x) => "<span>" + x + "</span>").join("") +
@@ -182,7 +194,18 @@ function renderCalendar() {
     '<section class="panel"><div class="section-bar"><h2 style="text-transform:capitalize">' + h(dateLabel(state.date)) + '</h2><button class="button button-ghost small" data-action="new-event">+ Событие</button></div>' +
     (events || '<div class="empty"><strong>Планов нет</strong>В этот день ты свободна для предложений.</div>') +
     '<div class="mini-spacer"></div><div class="notice info">Подтверждённые коллабы появляются здесь автоматически. Личные отметки видны только участникам комнаты.</div></section></div>';
-  refreshTwitch(state.members, () => { if (state.authorized && state.tab === "calendar") renderCalendar(); });
+
+}
+function renderStreamers() {
+  screen.innerHTML = streamersHtml({
+    members: [...state.members], slots: state.slots, locks: state.locks,
+    diary: state.groupCalendar.map(g=>({...g,status:"confirmed"})),
+    selectedUid: state.streamerSelectedUid,
+    month: state.streamerMonth, me: state.uid
+  });
+  if (!state.streamerSelectedUid) {
+    refreshTwitch(state.members, () => { if (state.authorized && state.tab==="streamers" && !state.streamerSelectedUid) renderStreamers(); });
+  }
 }
 function renderSearch() {
   const request = state.search;
@@ -231,6 +254,7 @@ function renderInbox() {
       '<div class="button-row">' + controls.join("") + '</div></article>';
   }).join("");
   screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Центр согласований</p><h1>Приглашения</h1><p class="sub">Предложения появятся здесь без перезагрузки страницы. Принятая коллаба сразу займёт окно у обеих участниц.</p></div></div>' +
+    groupInboxHtml(groupCollections(state.groupsOrganized,state.groupsInvited),state.uid) +
     '<div class="panel"><div class="tabs-mini"><button class="' + (state.inboxFilter === "pending" ? "active" : "") + '" data-action="inbox-pending">Ожидают ответа (' + pending.length + ')</button><button class="' + (state.inboxFilter === "all" ? "active" : "") + '" data-action="inbox-all">Вся история (' + all.length + ')</button></div>' +
     (rows || '<div class="empty"><strong>Приглашений пока нет</strong>Загляни в «Собрать коллаб», чтобы позвать подруг поиграть.</div>') +
     '</div>';
@@ -311,58 +335,15 @@ function wishModal() {
     '<button type="submit" class="button">Отправить приглашения</button></div></form>');
 }
 async function sendWish(form) {
-  const game = String(form.elements.game.value || "").trim().slice(0, 90);
-  if (!game) throw new Error("Укажи игру или идею коллаба.");
-  const rows = [...form.querySelectorAll("[data-wish-row]")];
-  if (!rows.length || rows.length > 5) throw new Error("Можно выбрать от одного до пяти вариантов времени.");
-  const options = rows.map((row) => ({
-    date: row.querySelector('[name="wishDate"]').value,
-    start: row.querySelector('[name="wishStart"]').value,
-    end: row.querySelector('[name="wishEnd"]').value
-  }));
-  for (const option of options) {
-    if (!isDate(option.date) || !isTime(option.start) || !isTime(option.end) || option.start === option.end)
-      throw new Error("В каждом варианте должны быть правильная дата и разные часы начала и конца.");
-    if (option.date < mskToday()) throw new Error("Вариант не может быть в прошлом.");
-  }
-  if (new Set(options.map((o) => o.date + o.start + o.end)).size !== options.length)
-    throw new Error("Убери повторяющиеся варианты даты и времени.");
-  const selected = [...form.querySelectorAll('[name="wishRecipient"]:checked')].map((x) => x.value);
-  if (!selected.length) throw new Error("Выбери хотя бы одну участницу.");
-  if (selected.length > 10) throw new Error("За один раз можно пригласить максимум 10 участниц.");
-  if (!options.some((o) => availability(state.uid, o) !== "busy"))
-    throw new Error("Все выбранные варианты заняты в твоём календаре.");
-  const message = String(form.elements.message.value || "").trim().slice(0, 500);
-  const success = [], failed = [];
-  for (const uid of selected) {
-    const member = person(uid);
-    if (!member || uid === state.uid) { failed.push("Неизвестная участница"); continue; }
-    if (!options.some((o) => availability(uid, o) !== "busy" && availability(state.uid, o) !== "busy")) {
-      failed.push(member.nick + ": выбранные окна заняты"); continue;
-    }
-    if (proposals().some((p) => p.status === "pending" && p.fromUid === state.uid && p.toUid === uid &&
-      p.game === game && p.date === options[0].date)) {
-      failed.push(member.nick + ": похожее приглашение уже отправлено"); continue;
-    }
-    const ref = doc(collection(db, "proposals"));
-    const first = options[0];
-    const preview = { fromUid: state.uid, toUid: uid, fromName: state.nick, toName: member.nick,
-      date: first.date, start: first.start, end: first.end, game };
-    const batch = writeBatch(db);
-    batch.set(ref, { ...preview, timeOptions: options, message, status: "pending",
-      createdAt: serverTimestamp(), respondedAt: null, replacesId: "" });
-    batch.set(doc(db, "moderatorPending", state.uid, "items", ref.id), preview);
-    batch.set(doc(db, "moderatorPending", uid, "items", ref.id), preview);
-    try { await batch.commit(); success.push(member.nick); }
-    catch (error) { failed.push(member.nick + ": " + readableError(error)); }
-  }
-  if (success.length) {
-    modalClose();
-    state.tab = "inbox"; state.inboxFilter = "all";
-    render();
-    flashMessage("Приглашения отправлены: " + success.join(", ") + "." +
-      (failed.length ? " Не отправлены: " + failed.join("; ") : ""), failed.length > 0);
-  } else throw new Error("Ни одно приглашение не отправлено. " + failed.join("; "));
+  const created = await createGroupWish({
+    db, form, members: state.members, uid: state.uid, nick: state.nick, today: mskToday(),
+    busy: (memberId,request) => availability(memberId,request)==="busy"
+  });
+  modalClose();
+  state.tab = "inbox"; state.inboxFilter = "pending";
+  render();
+  flashMessage("Групповое приглашение отправлено: " + created.names.join(", ") +
+    ". После их ответов выбери общее время.");
 }
 
 function inviteModal(uid, replacesId = "") {
@@ -622,6 +603,9 @@ function listen() {
   });
   listenTo(collection(db, "slots"), (items) => { state.slots = items; });
   listenTo(collection(db, "collabLocks"), (items) => { state.locks = items; });
+  listenTo(collection(db, "groupCalendar"), items=>{state.groupCalendar=items;});
+  listenTo(query(collection(db,"groupWishes"),where("organizerUid","==",state.uid)),items=>{state.groupsOrganized=items;});
+  listenTo(query(collection(db,"groupWishes"),where("inviteeUids","array-contains",state.uid)),items=>{state.groupsInvited=items;});
   listenTo(query(collection(db, "proposals"), where("fromUid", "==", state.uid)), (items) => { state.sent = items; });
   listenTo(query(collection(db, "proposals"), where("toUid", "==", state.uid)), (items) => { state.received = items; });
 }
