@@ -513,26 +513,43 @@ function listen() {
   listenTo(query(collection(db, "proposals"), where("fromUid", "==", state.uid)), (items) => { state.sent = items; });
   listenTo(query(collection(db, "proposals"), where("toUid", "==", state.uid)), (items) => { state.received = items; });
 }
+// Distinguish a denied access grant from errors later in first-time profile initialization.
+async function accessStep(label, action) {
+  try { return await action(); }
+  catch (error) {
+    const code = error?.code ? " [" + error.code + "]" : "";
+    throw new Error(label + ": " + readableError(error) + code);
+  }
+}
 async function checkAccess(user) {
   state.uid = user.uid;
-  const snap = await getDoc(doc(db, "allowedUsers", user.uid));
+  const snap = await accessStep("Шаг 1 — чтение allowedUsers / UID", () =>
+    getDoc(doc(db, "allowedUsers", user.uid)));
   state.authorized = snap.exists() && snap.data().enabled === true;
   if (!state.authorized) { cleanup(); deniedScreen(); return; }
+
   const memberRef = doc(db, "members", user.uid);
-  const old = await getDoc(memberRef);
+  const old = await accessStep("Шаг 2 — чтение профиля members", () => getDoc(memberRef));
   if (!old.exists()) {
-    await setDoc(memberRef, {
+    await accessStep("Шаг 3 — создание нового профиля members", () => setDoc(memberRef, {
       nick: ((user.email || "Новая участница").split("@")[0].length >= 2 ? (user.email || "").split("@")[0] : "Новая участница").slice(0, 40),
-      twitch: "", steam: "", telegram: "", telegramDM: "", youtube: "", tiktok: "", discord: "", weekdays: "", weekend: "", updatedAt: serverTimestamp()
-    });
+      twitch: "", steam: "", telegram: "", telegramDM: "", youtube: "", tiktok: "", discord: "",
+      weekdays: "", weekend: "", updatedAt: serverTimestamp()
+    }));
   }
-  const fresh = await getDoc(memberRef);
+  const fresh = await accessStep("Шаг 4 — повторное чтение профиля", () => getDoc(memberRef));
   state.member = fresh.data() || {};
   state.nick = state.member.nick || "Участница";
   listen();
   render();
-  const publicDoc = await getDoc(doc(db, "publicSchedules", user.uid));
-  if (!publicDoc.exists()) await publishPublicSchedule();
+
+  // A permission issue when publishing the public schedule must not block private login.
+  try {
+    const publicDoc = await getDoc(doc(db, "publicSchedules", user.uid));
+    if (!publicDoc.exists()) await publishPublicSchedule();
+  } catch (error) {
+    flashMessage("Вход успешен, но публичное расписание пока не синхронизировано: " + readableError(error), true);
+  }
 }
 async function boot() {
   if (!firebaseConfig?.apiKey || firebaseConfig.apiKey.includes("PASTE_")) { setupScreen(); return; }
@@ -568,7 +585,12 @@ async function boot() {
       try { await checkAccess(user); }
       catch (error) {
         flashMessage(readableError(error), true);
-        screen.innerHTML = '<div class="notice bad">Не удалось проверить доступ: ' + h(readableError(error)) + '</div>';
+        screen.innerHTML = '<section class="auth"><div class="panel"><p class="eyebrow">Диагностика входа</p><h1>Не удалось завершить вход</h1>' +
+          '<div class="notice bad">' + h(readableError(error)) + '</div>' +
+          '<p class="tiny-note">Firebase projectId: <code>' + h(firebaseConfig.projectId) + '</code></p>' +
+          '<p class="tiny-note">UID текущего аккаунта: <code>' + h(user.uid) + '</code></p>' +
+          '<p class="tiny-note">Проверь, что в этом Firebase-проекте обновлены Firestore Rules и есть запись allowedUsers с таким же UID и boolean enabled = true.</p>' +
+          '<div class="button-row"><button class="button" data-action="check-access">Повторить проверку</button><button class="button button-ghost" data-action="logout-diagnostic">Сменить аккаунт</button></div></div></section>';
       }
     });
   } catch (error) {
@@ -601,7 +623,13 @@ document.addEventListener("click", async (event) => {
       flashMessage("Если адрес существует, на почту придёт письмо для смены пароля.");
       return;
     }
-    if (action === "check-access") { await checkAccess(auth.currentUser); return; }
+    if (action === "logout-diagnostic") { await signOut(auth); return; }
+    if (action === "check-access") {
+      if (!auth?.currentUser) { loginScreen(); return; }
+      try { await checkAccess(auth.currentUser); }
+      catch (error) { flashMessage(readableError(error), true); }
+      return;
+    }
     if (!state.authorized) return;
     if (action === "select-day") {
       state.date = target.dataset.date; state.month = state.date.slice(0, 7); render(); return;
