@@ -295,7 +295,7 @@ async function saveEvent(form) {
   if (!validTypes.includes(data.type)) throw new Error("Неизвестный тип отметки.");
   const record = {
     ownerUid: state.uid, date: data.date, start: data.start, end: data.end,
-    type: data.type, title: data.type === "stream" ? (data.title || "Стрим").trim().slice(0, 90) : "",
+    type: data.type, title: data.type === "stream" ? String(data.title || "").trim().slice(0, 90) : "",
     public: ["stream", "off"].includes(data.type) && data.public === "on",
     updatedAt: serverTimestamp()
   };
