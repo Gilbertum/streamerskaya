@@ -150,3 +150,46 @@
 .wish-person-wrap{display:flex;flex-direction:column;gap:2px;min-width:0}
 .wish-person-wrap .wish-person{flex:1}
 .wish-person-wrap .wish-contact{align-self:flex-start;margin:0 0 0 12px}
+
+
+/* v5: streamers directory and self-contained read-only month */
+.streamers-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
+.streamer-card{display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding:18px;
+  border:1px solid #414451;background:linear-gradient(130deg,#232530,#1a1c27);
+  color:#eeeaf0;text-align:left;border-radius:15px;min-height:175px;transition:border-color .15s,transform .15s}
+.streamer-card:hover{border-color:#c6687c;transform:translateY(-2px)}
+.streamer-card-avatar{width:44px;height:44px;border-radius:12px;background:#462c3a;color:#f4bcc5;
+  display:grid;place-items:center;overflow:hidden;font-size:20px;font-weight:800}
+.streamer-card-avatar img{width:100%;height:100%;object-fit:cover}
+.streamer-card-name{font-size:17px;font-weight:760}
+.streamer-card-go{font-size:12px;color:#f2aeba;margin-top:auto}
+.streamer-month-day{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;min-height:110px;
+  background:#1c1e28;border:1px solid #393b49;border-radius:9px;color:#f2ebef;padding:8px;min-width:0;cursor:pointer}
+.streamer-month-day:hover{border-color:#c46b80;background:#302631}
+.streamer-month-day.outside{opacity:.28}
+.streamer-month-day .mod-chip{display:block;min-width:0;width:100%;font-size:10px}
+.streamer-month-day .mod-day-number{pointer-events:none}
+.streamer-month-day small{font-size:10px;color:#bdb6c1}
+.streamer-month-day .mod-chip.off{background:#343b50;color:#d7d9ec}
+.streamer-month-day .mod-chip.collab{background:#293b54;color:#bed0f3}
+
+/* v5: collaborative date polling */
+.group-request{padding:18px 0;border-bottom:1px solid #41414e}
+.group-request:last-of-type{border:0}
+.group-request .invite-top{align-items:flex-start}
+.group-request .invite-top h3{margin-bottom:4px;font-size:18px}
+.group-request .invite-message{margin:10px 0}
+.group-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:14px 0}
+.group-option{display:flex;align-items:center;gap:10px;padding:12px;
+  background:#252632;border:1px solid #4b4856;border-radius:10px;cursor:pointer;font-size:13px}
+.group-option:hover,.group-option:has(input:checked){background:#392b38;border-color:#c56879}
+.group-option input{accent-color:#dd5e73;width:17px;height:17px;flex-shrink:0}
+.group-responses{display:grid;gap:9px;margin:14px 0}
+.group-answer{padding:11px 13px;border:1px solid #454554;border-radius:10px;display:flex;flex-direction:column;gap:3px}
+.group-answer strong{font-size:13px}
+.group-answer small{font-size:12px;color:#bbb8c6}
+.group-request .field select{width:100%;padding:11px;background:#181920;color:#fff;border:1px solid #5d4f61;border-radius:9px}
+@media(max-width:900px){.streamers-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){.streamers-cards{grid-template-columns:1fr}.group-options{grid-template-columns:1fr}
+.streamer-month-day{min-height:72px;padding:4px}.streamer-month-day .mod-chip{font-size:8px;padding:3px}
+.streamer-month-day .mod-day-number{font-size:11px;margin-bottom:3px}}
