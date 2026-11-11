@@ -13,7 +13,7 @@ function ownDiaryEvents(uid,slots,locks,diary) {
   return [
     ...slots.filter(e=>e.ownerUid===uid).map(e=>({...e,kind:"slot"})),
     ...locks.filter(e=>e.fromUid===uid||e.toUid===uid).map(e=>({...e,type:"collab",kind:"lock"})),
-    ...diary.filter(e=>e.status==="confirmed").map(e=>({...e,type:"collab",kind:"group"}))
+    ...diary.filter(e=>e.status==="confirmed"&&e.participantsUids?.includes(uid)).map(e=>({...e,type:"collab",kind:"group"}))
   ];
 }
 function typeName(e){
