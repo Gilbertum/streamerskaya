@@ -294,6 +294,184 @@ service cloud.firestore {
         ];
     }
 
+
+    // GROUP COLLABS — all invitees select several acceptable dates; only the
+    // organizer can finalize one date approved by every invitee.
+    function groupMember(g, uid) {
+      return uid == g.organizerUid || uid in g.inviteeUids;
+    }
+    function validGroupOptions(o) {
+      return o is list && o.size() >= 1 && o.size() <= 5
+        && validWishChoice(o[0])
+        && (o.size() < 2 || validWishChoice(o[1]))
+        && (o.size() < 3 || validWishChoice(o[2]))
+        && (o.size() < 4 || validWishChoice(o[3]))
+        && (o.size() < 5 || validWishChoice(o[4]));
+    }
+    function validGroupCreate(g) {
+      return g.keys().hasAll(['organizerUid','organizerName','inviteeUids','inviteeNames',
+        'game','message','options','responses','status','chosenIndex','createdAt','updatedAt'])
+        && g.keys().hasOnly(['organizerUid','organizerName','inviteeUids','inviteeNames',
+        'game','message','options','responses','status','chosenIndex','createdAt','updatedAt'])
+        && g.organizerUid == request.auth.uid
+        && g.organizerName is string && g.organizerName.size() >= 2 && g.organizerName.size() <= 40
+        && g.inviteeUids is list && g.inviteeUids.size() >= 1 && g.inviteeUids.size() <= 10
+        && !(request.auth.uid in g.inviteeUids)
+        && g.inviteeUids.toSet().size() == g.inviteeUids.size()
+        && g.inviteeNames is list && g.inviteeNames.size() == g.inviteeUids.size()
+        && g.game is string && g.game.size() >= 1 && g.game.size() <= 90
+        && g.message is string && g.message.size() <= 500
+        && validGroupOptions(g.options)
+        && g.responses is map && g.responses.size() == 0
+        && g.status == 'collecting' && g.chosenIndex == -1
+        && g.createdAt is timestamp && g.updatedAt is timestamp;
+    }
+    function validGroupReply(g, uid) {
+      let options = g.responses[uid];
+      return options is list && options.size() >= 1 && options.size() <= 5
+        && options.toSet().size() == options.size()
+        && options[0] is int && options[0] >= 0 && options[0] < g.options.size()
+        && (options.size() < 2 || (options[1] is int && options[1] >= 0 && options[1] < g.options.size()))
+        && (options.size() < 3 || (options[2] is int && options[2] >= 0 && options[2] < g.options.size()))
+        && (options.size() < 4 || (options[3] is int && options[3] >= 0 && options[3] < g.options.size()))
+        && (options.size() < 5 || (options[4] is int && options[4] >= 0 && options[4] < g.options.size()));
+    }
+    function groupApproves(g, i) {
+      return g.inviteeUids.size() <= i ||
+        (g.responses.get(g.inviteeUids[i], []) is list &&
+         g.chosenIndex in g.responses.get(g.inviteeUids[i], []));
+    }
+    function allGroupApprove(g) {
+      return groupApproves(g,0) && groupApproves(g,1) && groupApproves(g,2)
+        && groupApproves(g,3) && groupApproves(g,4) && groupApproves(g,5)
+        && groupApproves(g,6) && groupApproves(g,7) && groupApproves(g,8)
+        && groupApproves(g,9);
+    }
+    match /groupWishes/{groupId} {
+      allow get, list: if member() && groupMember(resource.data, request.auth.uid);
+      allow create: if member() && validGroupCreate(request.resource.data);
+      allow update: if member() && (
+        // Recipient may change only their own availability answer.
+        (resource.data.status == 'collecting'
+          && request.auth.uid in resource.data.inviteeUids
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['responses','updatedAt'])
+          && request.resource.data.responses.diff(resource.data.responses).affectedKeys().hasOnly([request.auth.uid])
+          && request.resource.data.updatedAt is timestamp
+          && validGroupReply(request.resource.data, request.auth.uid))
+        ||
+        // Organizer chooses ONE offered option approved by ALL invited users.
+        (resource.data.status == 'collecting'
+          && request.auth.uid == resource.data.organizerUid
+          && request.resource.data.status == 'confirmed'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','chosenIndex','updatedAt'])
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.chosenIndex is int
+          && request.resource.data.chosenIndex >= 0
+          && request.resource.data.chosenIndex < resource.data.options.size()
+          && allGroupApprove(request.resource.data))
+        ||
+        // Cancellation may be initiated by any invited participant.
+        (resource.data.status in ['collecting','confirmed']
+          && groupMember(resource.data, request.auth.uid)
+          && request.resource.data.status == 'cancelled'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','updatedAt'])
+          && request.resource.data.updatedAt is timestamp)
+      );
+      allow delete: if false;
+    }
+
+    // A group diary is available to room members and authorized moderators.
+    // It has no private invite messages; all writes are validated against groupWishes.
+    function groupDoc(id) {
+      return getAfter(/databases/$(database)/documents/groupWishes/$(id)).data;
+    }
+    function diaryOwner(g, ownerUid) {
+      return ownerUid == g.organizerUid || ownerUid in g.inviteeUids;
+    }
+    function validGroupDiary(d, groupId, ownerUid) {
+      let g = groupDoc(groupId);
+      return d.keys().hasAll(['organizerUid','organizerName','participants',
+        'game','date','start','end','status'])
+        && d.keys().hasOnly(['organizerUid','organizerName','participants',
+        'game','date','start','end','status'])
+        && d.organizerUid == g.organizerUid
+        && d.organizerName == g.organizerName
+        && d.game == g.game
+        && d.participants is list
+        && d.participants.size() == g.inviteeUids.size() + 1
+        && diaryOwner(g,ownerUid)
+        && (
+          (g.status == 'collecting' && d.status == 'collecting'
+            && d.date == g.options[0].date && d.start == g.options[0].start && d.end == g.options[0].end)
+          ||
+          (g.status == 'confirmed' && d.status == 'confirmed'
+            && d.date == g.options[g.chosenIndex].date
+            && d.start == g.options[g.chosenIndex].start
+            && d.end == g.options[g.chosenIndex].end)
+        );
+    }
+    match /groupDiary/{ownerUid}/items/{groupId} {
+      allow read: if member() || isModeratorOf(ownerUid);
+      allow create: if member() && request.auth.uid == groupDoc(groupId).organizerUid
+        && validGroupDiary(request.resource.data,groupId,ownerUid);
+      allow update: if member() && request.auth.uid == groupDoc(groupId).organizerUid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','date','start','end'])
+        && validGroupDiary(request.resource.data,groupId,ownerUid);
+      allow delete: if member()
+        && groupDoc(groupId).status == 'cancelled'
+        && groupMember(groupDoc(groupId),request.auth.uid)
+        && diaryOwner(groupDoc(groupId),ownerUid);
+    }
+
+    // Flat confirmed-group calendar is queryable by all authorized streamers.
+    function validGroupCalendar(d, id) {
+      let g = groupDoc(id);
+      return d.keys().hasAll(['organizerUid','participantsUids','participants','game','date','start','end'])
+        && d.keys().hasOnly(['organizerUid','participantsUids','participants','game','date','start','end'])
+        && g.status == 'confirmed'
+        && d.organizerUid == g.organizerUid && d.game == g.game
+        && d.participantsUids is list
+        && d.participantsUids.size() == g.inviteeUids.size() + 1
+        && d.participants is list && d.participants.size() == d.participantsUids.size()
+        && d.participantsUids[0] == g.organizerUid
+        && d.date == g.options[g.chosenIndex].date
+        && d.start == g.options[g.chosenIndex].start
+        && d.end == g.options[g.chosenIndex].end;
+    }
+    match /groupCalendar/{groupId} {
+      allow read: if member();
+      allow create: if member() && request.auth.uid == groupDoc(groupId).organizerUid
+        && validGroupCalendar(request.resource.data,groupId);
+      allow delete: if member() && groupDoc(groupId).status == 'cancelled'
+        && groupMember(groupDoc(groupId),request.auth.uid);
+      allow update: if false;
+    }
+
+    // Public group markers: generic label and hours only, no private messages.
+    function goodGroupPublic(d,groupId,ownerUid) {
+      let g = groupDoc(groupId);
+      return d.keys().hasAll(['date','start','end','type','game','partner'])
+        && d.keys().hasOnly(['date','start','end','type','game','partner'])
+        && g.status == 'confirmed' && diaryOwner(g,ownerUid)
+        && d.date == g.options[g.chosenIndex].date
+        && d.start == g.options[g.chosenIndex].start
+        && d.end == g.options[g.chosenIndex].end
+        && d.type == 'collab'
+        && d.game is string && d.game.size() <= 90 && (d.game == '' || d.game == g.game)
+        && d.partner is string && d.partner.size() <= 40;
+    }
+    match /publicGroupCollabs/{ownerUid}/items/{groupId} {
+      allow get, list: if true;
+      allow create: if member() && request.auth.uid == groupDoc(groupId).organizerUid
+        && goodGroupPublic(request.resource.data,groupId,ownerUid)
+        && request.resource.data.game == '' && request.resource.data.partner == '';
+      allow update: if member() && me(ownerUid)
+        && goodGroupPublic(request.resource.data,groupId,ownerUid);
+      allow delete: if member() && groupDoc(groupId).status == 'cancelled'
+        && groupMember(groupDoc(groupId),request.auth.uid)
+        && diaryOwner(groupDoc(groupId),ownerUid);
+    }
+
     match /{document=**} { allow read, write: if false; }
   }
 }
