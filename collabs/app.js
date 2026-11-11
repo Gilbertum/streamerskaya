@@ -218,7 +218,15 @@ function renderInbox() {
       controls.push('<button class="button button-ghost small" data-action="respond" data-answer="declined" data-id="' + h(p.id) + '">Отклонить</button>');
     }
     if ((p.status === "pending" && !inbound) || p.status === "accepted") controls.push('<button class="button button-subtle small" data-action="respond" data-answer="cancelled" data-id="' + h(p.id) + '">Отменить</button>');
+    const choices = Array.isArray(p.timeOptions) && p.timeOptions.length ? p.timeOptions : null;
+    const chooser = choices && p.status === "pending"
+      ? (inbound ? '<div class="field" style="margin:12px 0"><label>Выбери подходящее время</label><select data-proposal-choice="' + h(p.id) + '">' +
+        choices.map((t, i) => '<option value="' + i + '">' + h(dateLabel(t.date)) + ' · ' + fmtTime(t) + ' МСК</option>').join("") +
+        '</select></div>'
+        : '<p class="tiny-note" style="margin:9px 0">Предложено ' + choices.length + ' вариантов. Получатель выберет подходящий.</p>')
+      : "";
     return '<article class="invite"><div class="invite-top"><div><div class="invite-title">' + (p.replacesId ? '↪ Перенос · ' : '') + h(p.game) + '</div><div class="invite-detail">' + (inbound ? 'От ' : 'Для ') + h(someone) + ' · ' + h(dateLabel(p.date)) + ' · ' + fmtTime(p) + '</div></div><span class="tag status-' + h(p.status) + '">' + h(statusNames[p.status] || p.status) + '</span></div>' +
+      chooser +
       (p.message ? '<div class="invite-message">' + h(p.message) + '</div>' : "") +
       '<div class="button-row">' + controls.join("") + '</div></article>';
   }).join("");
@@ -498,13 +506,22 @@ async function sendInvite(form) {
   render();
   flashMessage(replacesId ? "Предложение переноса отправлено. Старая коллаба останется в силе до согласия." : "Приглашение отправлено " + member.nick + ".");
 }
-async function respond(id, answer) {
+async function respond(id, answer, optionIndex = 0) {
   const p = proposals().find((entry) => entry.id === id);
   if (!p) throw new Error("Приглашение не найдено.");
   if (!["accepted", "declined", "cancelled"].includes(answer)) throw new Error("Неизвестный ответ.");
   if (answer === "accepted" && (p.toUid !== state.uid || p.status !== "pending")) throw new Error("Принять приглашение может только получатель.");
   if (answer === "declined" && (p.toUid !== state.uid || p.status !== "pending")) throw new Error("Отклонить приглашение может только получатель.");
   if (answer === "cancelled" && p.status !== "pending" && p.status !== "accepted") throw new Error("Это предложение уже завершено.");
+  let selected = p;
+  const choices = Array.isArray(p.timeOptions) ? p.timeOptions : null;
+  if (answer === "accepted" && choices) {
+    if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= choices.length) throw new Error("Выбери предложенный вариант времени.");
+    const chosen = choices[optionIndex];
+    if (!isDate(chosen.date) || !isTime(chosen.start) || !isTime(chosen.end) || chosen.start === chosen.end)
+      throw new Error("Этот вариант времени некорректен.");
+    selected = { ...p, date: chosen.date, start: chosen.start, end: chosen.end };
+  }
   const oldLock = answer === "accepted" && p.replacesId ? state.locks.find((lock) => lock.id === p.replacesId) : null;
   if (answer === "accepted" && p.replacesId && (!oldLock ||
     ![oldLock.fromUid, oldLock.toUid].includes(p.fromUid) ||
@@ -512,12 +529,16 @@ async function respond(id, answer) {
     throw new Error("Исходная коллаба для переноса уже отменена или недоступна.");
   }
   if (answer === "accepted") {
-    const mine = availability(state.uid, p, p.replacesId || "");
-    const theirs = availability(p.fromUid, p, p.replacesId || "");
+    const mine = availability(state.uid, selected, p.replacesId || "");
+    const theirs = availability(p.fromUid, selected, p.replacesId || "");
     if (mine === "busy" || theirs === "busy") throw new Error("На новом времени есть занятость. Выберите другое окно.");
   }
   const batch = writeBatch(db);
-  batch.update(doc(db, "proposals", id), { status: answer, respondedAt: serverTimestamp() });
+  const change = { status: answer, respondedAt: serverTimestamp() };
+  if (answer === "accepted" && choices) Object.assign(change, {
+    chosenIndex: optionIndex, date: selected.date, start: selected.start, end: selected.end
+  });
+  batch.update(doc(db, "proposals", id), change);
   const newLock = doc(db, "collabLocks", id);
   const markers = (proposal) => [proposal.fromUid, proposal.toUid].map((uid) => doc(db, "publicCollabs", uid, "items", proposal.id));
   if (p.status === "pending" && Object.prototype.hasOwnProperty.call(p, "replacesId")) {
@@ -528,9 +549,9 @@ async function respond(id, answer) {
   if (answer === "accepted") {
     batch.set(newLock, {
       fromUid: p.fromUid, toUid: p.toUid, fromName: p.fromName, toName: p.toName,
-      date: p.date, start: p.start, end: p.end, game: p.game
+      date: selected.date, start: selected.start, end: selected.end, game: p.game
     });
-    const marker = { date: p.date, start: p.start, end: p.end, type: "collab", game: "", partner: "" };
+    const marker = { date: selected.date, start: selected.start, end: selected.end, type: "collab", game: "", partner: "" };
     for (const ref of markers(p)) batch.set(ref, marker);
     if (oldLock) {
       batch.update(doc(db, "proposals", oldLock.id), { status: "cancelled", respondedAt: serverTimestamp() });
@@ -804,7 +825,9 @@ document.addEventListener("click", async (event) => {
       const label = target.dataset.answer === "accepted" ? "Принять" : "Подтвердить действие";
       if (target.dataset.answer === "cancelled" && !confirm("Отменить коллаб? Он исчезнет из календарей.")) return;
       state.busy = true; target.disabled = true;
-      try { await respond(target.dataset.id, target.dataset.answer); }
+      const choice = target.closest(".invite")?.querySelector("[data-proposal-choice]");
+      const chosenIndex = choice ? Number(choice.value) : 0;
+      try { await respond(target.dataset.id, target.dataset.answer, chosenIndex); }
       finally { state.busy = false; target.disabled = false; }
       return;
     }
