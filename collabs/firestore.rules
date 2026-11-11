@@ -59,7 +59,7 @@ service cloud.firestore {
     }
     function goodLock(d) {
       return d.keys().hasAll(['fromUid','toUid','date','start','end','game','fromName','toName'])
-        && d.keys().hasOnly(['fromUid','toUid','date','start','end','game'])
+        && d.keys().hasOnly(['fromUid','toUid','date','start','end','game','fromName','toName'])
         && d.fromUid is string && d.toUid is string
         && goodWindow(d) && d.game is string && d.game.size() <= 90
         && (!('fromName' in d) || (d.fromName is string && d.fromName.size() <= 40))
