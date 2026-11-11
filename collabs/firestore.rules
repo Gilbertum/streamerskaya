@@ -8,6 +8,11 @@ service cloud.firestore {
       return exists(allowedPath(uid)) && get(allowedPath(uid)).data.enabled == true;
     }
     function member() { return signedIn() && isAllowed(request.auth.uid); }
+    function isModeratorOf(ownerUid) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/moderatorAccess/$(ownerUid)/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/moderatorAccess/$(ownerUid)/users/$(request.auth.uid)).data.enabled == true;
+    }
     function me(uid) { return signedIn() && request.auth.uid == uid; }
     function goodDate(d) { return d is string && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
     function goodTime(t) { return t is string && t.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$'); }
@@ -15,11 +20,15 @@ service cloud.firestore {
       return goodDate(d.date) && goodTime(d.start) && goodTime(d.end) && (d.start != d.end || (d.start == '00:00' && d.end == '00:00'));
     }
     function goodMember(d) {
-      return d.keys().hasAll(['nick','twitch','steam','weekdays','weekend','updatedAt'])
-        && d.keys().hasOnly(['nick','twitch','steam','weekdays','weekend','updatedAt'])
+      return d.keys().hasAll(['nick','twitch','steam','telegram','youtube','tiktok','discord','weekdays','weekend','updatedAt'])
+        && d.keys().hasOnly(['nick','twitch','steam','telegram','youtube','tiktok','discord','weekdays','weekend','updatedAt'])
         && d.nick is string && d.nick.size() >= 2 && d.nick.size() <= 40
         && d.twitch is string && d.twitch.size() <= 300
         && d.steam is string && d.steam.size() <= 300
+        && d.telegram is string && d.telegram.size() <= 300
+        && d.youtube is string && d.youtube.size() <= 300
+        && d.tiktok is string && d.tiktok.size() <= 300
+        && d.discord is string && d.discord.size() <= 300
         && d.weekdays is string && d.weekdays.size() <= 80
         && d.weekend is string && d.weekend.size() <= 80
         && d.updatedAt is timestamp;
@@ -29,9 +38,9 @@ service cloud.firestore {
         && d.keys().hasOnly(['ownerUid','date','start','end','type','title','public','updatedAt'])
         && d.ownerUid is string && d.ownerUid.size() <= 128
         && goodWindow(d)
-        && d.type in ['stream','busy','maybe','free']
+        && d.type in ['stream','off','busy','maybe','free']
         && d.title is string && d.title.size() <= 90
-        && d.public is bool && (d.type == 'stream' || d.public == false)
+        && d.public is bool && (d.type in ['stream','off'] || d.public == false)
         && d.updatedAt is timestamp;
     }
     function goodProposal(d) {
@@ -49,10 +58,12 @@ service cloud.firestore {
         && d.createdAt is timestamp && d.respondedAt == null;
     }
     function goodLock(d) {
-      return d.keys().hasAll(['fromUid','toUid','date','start','end','game'])
+      return d.keys().hasAll(['fromUid','toUid','date','start','end','game','fromName','toName'])
         && d.keys().hasOnly(['fromUid','toUid','date','start','end','game'])
         && d.fromUid is string && d.toUid is string
-        && goodWindow(d) && d.game is string && d.game.size() <= 90;
+        && goodWindow(d) && d.game is string && d.game.size() <= 90
+        && (!('fromName' in d) || (d.fromName is string && d.fromName.size() <= 40))
+        && (!('toName' in d) || (d.toName is string && d.toName.size() <= 40));
     }
 
     // Доступ организатор настраивает вручную в Firebase Console.
@@ -63,14 +74,15 @@ service cloud.firestore {
 
     // Ник и соцсети доступны только приглашённым участницам.
     match /members/{uid} {
-      allow read: if member();
+      allow get: if member() || isModeratorOf(uid);
+      allow list: if member();
       allow create, update: if member() && me(uid) && goodMember(request.resource.data);
       allow delete: if false;
     }
 
     // Закрытое расписание: читать могут участницы, менять — только автор.
     match /slots/{slotId} {
-      allow read: if member();
+      allow read: if member() || isModeratorOf(resource.data.ownerUid);
       allow create: if member() && request.resource.data.ownerUid == request.auth.uid
         && goodSlot(request.resource.data);
       allow update: if member() && resource.data.ownerUid == request.auth.uid
@@ -110,7 +122,7 @@ service cloud.firestore {
 
     // Подтверждённый коллаб блокирует обоих, но не раскрывает приглашение/сообщение.
     match /collabLocks/{proposalId} {
-      allow read: if member();
+      allow read: if member() || isModeratorOf(resource.data.fromUid) || isModeratorOf(resource.data.toUid);
       allow create: if member()
         && goodLock(request.resource.data)
         && request.resource.data.toUid == request.auth.uid
@@ -120,7 +132,9 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.date == request.resource.data.date
         && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.start == request.resource.data.start
         && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.end == request.resource.data.end
-        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.game == request.resource.data.game;
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.game == request.resource.data.game
+        && request.resource.data.fromName == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.fromName
+        && request.resource.data.toName == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toName;
       allow delete: if member()
         && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
       allow update: if false;
@@ -132,13 +146,56 @@ service cloud.firestore {
       allow get: if true;
       allow list: if false;
       allow create, update: if member() && me(uid)
-        && request.resource.data.keys().hasAll(['nick','twitch','events','updatedAt'])
-        && request.resource.data.keys().hasOnly(['nick','twitch','events','updatedAt'])
+        && request.resource.data.keys().hasAll(['nick','twitch','telegram','youtube','tiktok','discord','events','updatedAt'])
+        && request.resource.data.keys().hasOnly(['nick','twitch','telegram','youtube','tiktok','discord','events','updatedAt'])
         && request.resource.data.nick is string && request.resource.data.nick.size() <= 40
         && request.resource.data.twitch is string && request.resource.data.twitch.size() <= 300
+        && request.resource.data.telegram is string && request.resource.data.telegram.size() <= 300
+        && request.resource.data.youtube is string && request.resource.data.youtube.size() <= 300
+        && request.resource.data.tiktok is string && request.resource.data.tiktok.size() <= 300
+        && request.resource.data.discord is string && request.resource.data.discord.size() <= 300
         && request.resource.data.events is list && request.resource.data.events.size() <= 300
         && request.resource.data.updatedAt is timestamp;
       allow delete: if member() && me(uid);
+    }
+
+
+    // Доступ модератора выдаёт администратор Firebase вручную.
+    // Модераторское приглашение на URL НЕ является авторизацией.
+    match /moderatorAccess/{ownerUid}/users/{moderatorUid} {
+      allow get: if me(moderatorUid);
+      allow list, create, update, delete: if false;
+    }
+
+    // По одному обезличенному маркеру на каждого участника подтверждённого коллаба.
+    // Публично читаются ТОЛЬКО тип и дата/часы, без игры, имён и сообщения.
+    match /publicCollabs/{ownerUid}/items/{proposalId} {
+      allow get, list: if true;
+      allow create: if member()
+        && request.resource.data.keys().hasAll(['type','date','start','end'])
+        && request.resource.data.keys().hasOnly(['type','date','start','end'])
+        && request.resource.data.type == 'collab'
+        && goodWindow(request.resource.data)
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.status == 'accepted'
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid == request.auth.uid
+        && ownerUid in [
+          getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.fromUid,
+          getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid
+        ]
+        && request.resource.data.date == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.date
+        && request.resource.data.start == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.start
+        && request.resource.data.end == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.end;
+      allow delete: if member()
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.status == 'cancelled'
+        && request.auth.uid in [
+          getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.fromUid,
+          getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid
+        ]
+        && ownerUid in [
+          getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.fromUid,
+          getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid
+        ];
+      allow update: if false;
     }
 
     match /{document=**} { allow read, write: if false; }
