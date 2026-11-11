@@ -193,3 +193,16 @@
 @media(max-width:620px){.streamers-cards{grid-template-columns:1fr}.group-options{grid-template-columns:1fr}
 .streamer-month-day{min-height:72px;padding:4px}.streamer-month-day .mod-chip{font-size:8px;padding:3px}
 .streamer-month-day .mod-day-number{font-size:11px;margin-bottom:3px}}
+
+
+/* Collab Room 5.0.1 — unified warm yellow for every confirmed collab.
+   Distinguishes bookings from pink streams and slate days off. */
+:root { --collab-yellow:#f3d27a; --collab-yellow-bg:#594723; --collab-yellow-border:#ba913a; }
+.dot.collab { background:var(--collab-yellow); }
+.tag.collab { color:#ffe4a5;background:#49391f;border-color:var(--collab-yellow-border); }
+.calendar-day-label.collab { background:var(--collab-yellow-bg);color:#ffe7a4; }
+.mod-chip.collab,.streamer-month-day .mod-chip.collab {background:var(--collab-yellow-bg);color:#ffe4a3;border:1px solid #a88745;}
+.community-event.collab {border-color:var(--collab-yellow-border);background:#383022;}
+.community-event.collab strong {color:#ffe7a6;}
+.community-event.collab small {color:#e0c88e;}
+.event:has(.tag.collab) .event-title {color:#ffe1a0;}

@@ -66,7 +66,7 @@ function flashMessage(message, error = false) {
   flash.className = error ? "flash bad" : "flash";
   flash.hidden = false;
   clearTimeout(flash._timer);
-  flash._timer = setTimeout(() => { flash.hidden = true; }, 6500);
+  flash._timer = setTimeout(() => { flash.hidden = true; }, error ? 15000 : 6500);
 }
 function readableError(error) {
   const code = error?.code || "";
@@ -130,6 +130,40 @@ function availability(memberId, request, ignoreLockId = "") {
   if (problems.includes("maybe")) return "maybe";
   return "free"; // Если ничего не отмечено, можно предложить коллаб.
 }
+
+function bookingConflicts(memberId, request, ignoreLockId = "") {
+  const blockers=[];
+  for (const item of state.slots) {
+    if (item.ownerUid !== memberId || item.type === "free" || item.type === "maybe" || !overlaps(item,request)) continue;
+    blockers.push({date:item.date,start:item.start,end:item.end,
+      label:item.type === "stream" ? "Стрим: " + (item.title||"Без игры") :
+        item.type === "off" ? "Выходной" : "Недоступна"});
+  }
+  for (const lock of state.locks) {
+    if (lock.id === ignoreLockId || (lock.fromUid !== memberId && lock.toUid !== memberId) || !overlaps(lock,request)) continue;
+    blockers.push({date:lock.date,start:lock.start,end:lock.end,
+      label:"Коллаба: "+(lock.game||"Без игры")+" с "+nameOf(lock.fromUid===memberId?lock.toUid:lock.fromUid)});
+  }
+  for (const group of state.groupCalendar) {
+    if (!group.participantsUids?.includes(memberId) || !overlaps(group,request)) continue;
+    blockers.push({date:group.date,start:group.start,end:group.end,
+      label:"Групповая коллаба: "+(group.game||"Без игры")});
+  }
+  return blockers;
+}
+function duplicateConfirmedInvite(p, request, ignoreLockId = "") {
+  return state.locks.find(lock => lock.id !== ignoreLockId &&
+    ((lock.fromUid===p.fromUid && lock.toUid===p.toUid) ||
+     (lock.fromUid===p.toUid && lock.toUid===p.fromUid)) &&
+    lock.date===request.date && lock.start===request.start && lock.end===request.end &&
+    String(lock.game||"").trim().toLowerCase()===String(p.game||"").trim().toLowerCase());
+}
+function conflictDescription(ownerUid,request,ignoreLockId="") {
+  const conflict=bookingConflicts(ownerUid,request,ignoreLockId)[0];
+  if(!conflict)return "";
+  return (ownerUid===state.uid?"У тебя":"У "+nameOf(ownerUid))+
+    " уже запланировано «"+conflict.label+"» "+dateLabel(conflict.date)+", "+fmtTime(conflict)+" МСК";
+}
 function countPending() {
   return state.received.filter(p=>p.status==="pending").length +
     state.groupsInvited.filter(g=>g.status==="collecting"&&!Array.isArray(g.responses?.[state.uid])).length +
@@ -191,7 +225,7 @@ function renderCalendar() {
     new Date(year, month - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" }) +
     '</h2><div class="button-row"><button class="button button-ghost small" data-action="previous-month">←</button><button class="button button-ghost small" data-action="current-month">Сегодня</button><button class="button button-ghost small" data-action="next-month">→</button></div></div><div class="calendar-week">' +
     ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((x) => "<span>" + x + "</span>").join("") +
-    '</div><div class="calendar-grid">' + dayButtons + '</div><p class="tiny-note" style="margin:15px 0 0">Розовый — стрим · серо-синий — выходной · синий — коллаба. Открой день, чтобы увидеть подробности.</p></section>' +
+    '</div><div class="calendar-grid">' + dayButtons + '</div><p class="tiny-note" style="margin:15px 0 0">Розовый — стрим · серо-синий — выходной · жёлтый — коллаба. Открой день, чтобы увидеть подробности.</p></section>' +
     '<section class="panel"><div class="section-bar"><h2 style="text-transform:capitalize">' + h(dateLabel(state.date)) + '</h2><button class="button button-ghost small" data-action="new-event">+ Событие</button></div>' +
     (events || '<div class="empty"><strong>Планов нет</strong>В этот день ты свободна для предложений.</div>') +
     '<div class="mini-spacer"></div><div class="notice info">Подтверждённые коллабы появляются здесь автоматически. Личные отметки видны только участникам комнаты.</div></section></div>';
@@ -237,9 +271,18 @@ function renderInbox() {
     const inbound = p.toUid === state.uid;
     const someone = inbound ? nameOf(p.fromUid) : nameOf(p.toUid);
     const controls = [];
+    const alternatives = Array.isArray(p.timeOptions) && p.timeOptions.length ? p.timeOptions : [p];
+    const duplicated = p.status === "pending" &&
+      alternatives.every(slot => duplicateConfirmedInvite(p, slot, p.replacesId || ""));
+    const conflicting = p.status === "pending" && inbound && !duplicated && alternatives.length === 1
+      ? [conflictDescription(state.uid,p,p.replacesId || ""),conflictDescription(p.fromUid,p,p.replacesId || "")].filter(Boolean) : [];
     if (inbound && p.status === "pending") {
-      controls.push('<button class="button small" data-action="respond" data-answer="accepted" data-id="' + h(p.id) + '">Принять</button>');
-      controls.push('<button class="button button-ghost small" data-action="respond" data-answer="declined" data-id="' + h(p.id) + '">Отклонить</button>');
+      if (duplicated) {
+        controls.push('<button class="button button-ghost small" data-action="respond" data-answer="declined" data-id="' + h(p.id) + '">Убрать повтор</button>');
+      } else {
+        controls.push('<button class="button small" data-action="respond" data-answer="accepted" data-id="' + h(p.id) + '">Принять</button>');
+        controls.push('<button class="button button-ghost small" data-action="respond" data-answer="declined" data-id="' + h(p.id) + '">Отклонить</button>');
+      }
     }
     if ((p.status === "pending" && !inbound) || p.status === "accepted") controls.push('<button class="button button-subtle small" data-action="respond" data-answer="cancelled" data-id="' + h(p.id) + '">Отменить</button>');
     const choices = Array.isArray(p.timeOptions) && p.timeOptions.length ? p.timeOptions : null;
@@ -249,7 +292,10 @@ function renderInbox() {
         '</select></div>'
         : '<p class="tiny-note" style="margin:9px 0">Предложено ' + choices.length + ' вариантов. Получатель выберет подходящий.</p>')
       : "";
-    return '<article class="invite"><div class="invite-top"><div><div class="invite-title">' + (p.replacesId ? '↪ Перенос · ' : '') + h(p.game) + '</div><div class="invite-detail">' + (inbound ? 'От ' : 'Для ') + h(someone) + ' · ' + h(dateLabel(p.date)) + ' · ' + fmtTime(p) + '</div></div><span class="tag status-' + h(p.status) + '">' + h(statusNames[p.status] || p.status) + '</span></div>' +
+    return '<article class="invite"><div class="invite-top"><div><div class="invite-title">' + (p.replacesId ? '↪ Перенос · ' : '') + h(p.game) + '</div><div class="invite-detail">' + (inbound ? 'От ' : 'Для ') + h(someone) + ' · ' + h(dateLabel(p.date)) + ' · ' + fmtTime(p) + ' · № ' + h(p.id.slice(-6)) + '</div></div><span class="tag status-' + h(p.status) + '">' + h(statusNames[p.status] || p.status) + '</span></div>' +
+      (duplicated ? '<div class="notice info">Повтор: такая коллаба с теми же участниками, игрой и временем уже подтверждена. Убрать повтор можно без отмены существующей коллабы.</div>' : "") +
+      (conflicting.length ? '<div class="notice bad">Внимание: '+h(conflicting.join("; "))+
+        '. Для этого приглашения нужно согласовать новое время, так как существующая бронь остаётся в силе.</div>' : "") +
       chooser +
       (p.message ? '<div class="invite-message">' + h(p.message) + '</div>' : "") +
       '<div class="button-row">' + controls.join("") + '</div></article>';
@@ -466,8 +512,13 @@ async function sendInvite(form) {
   const request = { date: data.date, start: data.start, end: data.end };
   const replacesId = form.dataset.replaces || "";
   if (replacesId && !state.locks.some((x) => x.id === replacesId && [x.fromUid, x.toUid].includes(uid) && [x.fromUid, x.toUid].includes(state.uid))) throw new Error("Старая коллаба уже неактуальна.");
-  if (availability(uid, request, replacesId) === "busy") throw new Error("Это окно уже занято. Выбери другое время.");
-  if (availability(state.uid, request, replacesId) === "busy") throw new Error("В твоём расписании уже занято это время.");
+  if (duplicateConfirmedInvite({fromUid:state.uid,toUid:uid,game},request,replacesId)) {
+    throw new Error("Такая коллаба с "+member.nick+" уже подтверждена. Повторное приглашение не требуется.");
+  }
+  const senderConflict=conflictDescription(state.uid,request,replacesId);
+  const recipientConflict=conflictDescription(uid,request,replacesId);
+  if(senderConflict||recipientConflict)throw new Error("Время занято: "+
+    [senderConflict,recipientConflict].filter(Boolean).join("; ")+". Выбери другое время.");
   const exists = proposals().some((p) => p.fromUid === state.uid && p.toUid === uid && p.status === "pending" && p.date === data.date && overlaps(p, request));
   if (exists) throw new Error("Похожее приглашение уже ожидает ответа.");
   const proposalRef = doc(collection(db, "proposals"));
@@ -511,9 +562,15 @@ async function respond(id, answer, optionIndex = 0) {
     throw new Error("Исходная коллаба для переноса уже отменена или недоступна.");
   }
   if (answer === "accepted") {
-    const mine = availability(state.uid, selected, p.replacesId || "");
-    const theirs = availability(p.fromUid, selected, p.replacesId || "");
-    if (mine === "busy" || theirs === "busy") throw new Error("На новом времени есть занятость. Выберите другое окно.");
+    if(duplicateConfirmedInvite(p,selected,p.replacesId||""))
+      throw new Error("Такая же коллаба уже подтверждена между "+nameOf(p.fromUid)+" и "+
+        nameOf(p.toUid)+" на "+dateLabel(selected.date)+", "+fmtTime(selected)+
+        " МСК. Повторное приглашение можно отклонить без отмены подтверждённого.");
+    const mine=conflictDescription(state.uid,selected,p.replacesId||"");
+    const theirs=conflictDescription(p.fromUid,selected,p.replacesId||"");
+    if(mine||theirs)throw new Error("Не удалось принять приглашение: "+
+      [mine,theirs].filter(Boolean).join("; ")+
+      ". Существующие события не изменены. Согласуй другое время с организатором.");
   }
   const batch = writeBatch(db);
   const change = { status: answer, respondedAt: serverTimestamp() };
