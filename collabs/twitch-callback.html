@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Twitch — подключение к Collab Room</title><meta name="referrer" content="no-referrer">
+<style>body{background:#14151c;color:#eeeef5;font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;padding:24px}.card{max-width:430px;background:#20212c;border:1px solid #50505b;border-radius:20px;padding:28px;text-align:center}a{color:#ef9dab}</style></head>
+<body><div class="card"><h1>Подключаем Twitch…</h1><p id="message">Проверяем ответ Twitch.</p><p><a href="./">Вернуться в Collab Room</a></p></div>
+<script type="module">
+import { twitchClientId } from "./firebase-config.js";
+const message = document.getElementById("message");
+const params = new URLSearchParams(location.hash.slice(1));
+const state = sessionStorage.getItem("collab-room-twitch-state-v1");
+const token = params.get("access_token");
+const expires = Number(params.get("expires_in") || 0);
+const valid = !!state && params.get("state") === state && !!token && expires > 60;
+history.replaceState(null, "", location.pathname);
+sessionStorage.removeItem("collab-room-twitch-state-v1");
+if (valid) {
+  sessionStorage.setItem("collab-room-twitch-session-v1", JSON.stringify({
+    token, clientId: twitchClientId, expiresAt: Date.now() + Math.min(expires, 86400 * 60) * 1000
+  }));
+  message.textContent = "Twitch подключён. Возвращаемся в календарь.";
+  location.replace("./");
+} else {
+  message.textContent = params.get("error_description") || "Не удалось подтвердить подключение. Вернись в календарь и повтори попытку.";
+}
+</script></body></html>

@@ -1,4 +1,5 @@
 import { firebaseConfig } from "./firebase-config.js";
+import { twitchPanelHtml, refreshTwitch, startTwitchAuthorization } from "./twitch-panel.js";
 import { startPublicView } from "./views.js";
 import { startModeratorV3 } from "./moderator-v3.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
@@ -152,9 +153,14 @@ function renderCalendar() {
     if (date.slice(0, 7) !== state.month) classes.push("outside");
     if (date === state.date) classes.push("selected");
     if (date === mskToday()) classes.push("today");
-    dayButtons += '<button type="button" class="' + classes.join(" ") + '" data-action="select-day" data-date="' + date + '"><span class="day-number">' + Number(date.slice(8)) + '</span><span class="dots">' +
-      items.slice(0, 5).map((item) => '<span class="dot ' + h(item.type) + '"></span>').join("") + '</span>' +
-      (items.length > 0 ? '<span class="day-count">' + items.length + " событий</span>" : "") + '</button>';
+    const shortName = (item) => item.type === "stream" ? "Стрим" : item.type === "off" ? "Выходной"
+      : item.type === "collab" ? "Коллаба" : item.type === "maybe" ? "Под вопросом" : item.type === "busy" ? "Занято" : "Свободно";
+    dayButtons += '<button type="button" class="' + classes.join(" ") + '" data-action="select-day" data-date="' + date + '"><span class="day-number">' + Number(date.slice(8)) + '</span>' +
+      '<span class="calendar-day-labels">' + items.slice(0, 3).map((item) =>
+        '<span class="calendar-day-label ' + h(item.type) + '" title="' + h(item.type === "stream" ? (item.title || "Стрим") : item.type === "collab" ? (item.game || "Коллаба") : shortName(item)) + '">' +
+        h(shortName(item)) + '</span>').join("") +
+      (items.length > 3 ? '<span class="calendar-more">+' + (items.length - 3) + '</span>' : "") +
+      '</span></button>';
   }
   const events = myItems(state.date).map((item) => {
     const isLock = item.kind === "lock";
@@ -167,15 +173,16 @@ function renderCalendar() {
       '<div style="margin-top:7px"><span class="tag ' + h(item.type) + '">' + typeName(item.type) + '</span>' +
       (!isLock && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
   }).join("");
-  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Добавляй стримы, закрывай неудобные дни и отмечай сомнительные окна. Остальное считается свободным для коллаба.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
-    '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
+  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и выходные, а через «Хочу коллабу» отправляй одной заявкой несколько вариантов времени выбранным участницам.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
+    twitchPanelHtml(state.members) + '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
     new Date(year, month - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" }) +
     '</h2><div class="button-row"><button class="button button-ghost small" data-action="previous-month">←</button><button class="button button-ghost small" data-action="current-month">Сегодня</button><button class="button button-ghost small" data-action="next-month">→</button></div></div><div class="calendar-week">' +
     ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((x) => "<span>" + x + "</span>").join("") +
-    '</div><div class="calendar-grid">' + dayButtons + '</div><p class="tiny-note" style="margin:15px 0 0">Розовый — стрим / занято · жёлтый — под вопросом · зелёный — доступно · синий — подтверждённый коллаб.</p></section>' +
+    '</div><div class="calendar-grid">' + dayButtons + '</div><p class="tiny-note" style="margin:15px 0 0">Розовый — стрим · серо-синий — выходной · синий — коллаба. Открой день, чтобы увидеть подробности.</p></section>' +
     '<section class="panel"><div class="section-bar"><h2 style="text-transform:capitalize">' + h(dateLabel(state.date)) + '</h2><button class="button button-ghost small" data-action="new-event">+ Событие</button></div>' +
     (events || '<div class="empty"><strong>Планов нет</strong>В этот день ты свободна для предложений.</div>') +
     '<div class="mini-spacer"></div><div class="notice info">Подтверждённые коллабы появляются здесь автоматически. Личные отметки видны только участникам комнаты.</div></section></div>';
+  refreshTwitch(state.members, () => { if (state.authorized && state.tab === "calendar") renderCalendar(); });
 }
 function renderSearch() {
   const request = state.search;
@@ -211,7 +218,15 @@ function renderInbox() {
       controls.push('<button class="button button-ghost small" data-action="respond" data-answer="declined" data-id="' + h(p.id) + '">Отклонить</button>');
     }
     if ((p.status === "pending" && !inbound) || p.status === "accepted") controls.push('<button class="button button-subtle small" data-action="respond" data-answer="cancelled" data-id="' + h(p.id) + '">Отменить</button>');
+    const choices = Array.isArray(p.timeOptions) && p.timeOptions.length ? p.timeOptions : null;
+    const chooser = choices && p.status === "pending"
+      ? (inbound ? '<div class="field" style="margin:12px 0"><label>Выбери подходящее время</label><select data-proposal-choice="' + h(p.id) + '">' +
+        choices.map((t, i) => '<option value="' + i + '">' + h(dateLabel(t.date)) + ' · ' + fmtTime(t) + ' МСК</option>').join("") +
+        '</select></div>'
+        : '<p class="tiny-note" style="margin:9px 0">Предложено ' + choices.length + ' вариантов. Получатель выберет подходящий.</p>')
+      : "";
     return '<article class="invite"><div class="invite-top"><div><div class="invite-title">' + (p.replacesId ? '↪ Перенос · ' : '') + h(p.game) + '</div><div class="invite-detail">' + (inbound ? 'От ' : 'Для ') + h(someone) + ' · ' + h(dateLabel(p.date)) + ' · ' + fmtTime(p) + '</div></div><span class="tag status-' + h(p.status) + '">' + h(statusNames[p.status] || p.status) + '</span></div>' +
+      chooser +
       (p.message ? '<div class="invite-message">' + h(p.message) + '</div>' : "") +
       '<div class="button-row">' + controls.join("") + '</div></article>';
   }).join("");
@@ -252,9 +267,10 @@ function eventModal(id) {
   const item = state.slots.find((x) => x.id === id && x.ownerUid === state.uid);
   const source = item || { date: state.date, start: "20:00", end: "23:00", type: "stream", title: "", public: true };
   const option = (value, label) => '<option value="' + value + '"' + (source.type === value ? ' selected' : "") + '>' + label + '</option>';
+  const legacyType = item && ["busy", "maybe", "free"].includes(source.type) ? option(source.type, "Ранее созданная отметка: " + typeName(source.type)) : "";
   modalOpen('<h2 id="modalTitle">' + (item ? "Редактировать событие" : "Новое событие") + '</h2><p class="muted">Дату и часы вводим по Москве. Пустой день считается свободным.</p>' +
     '<form data-form="event" data-id="' + h(id || "") + '" class="form-grid"><div class="field full"><label>Тип отметки</label><select name="type">' +
-    option("stream", "Стрим / запланированная игра") + option("off", "Выходной (можно показать зрителям)") + option("busy", "Не могу коллабиться") + option("maybe", "Под вопросом") + option("free", "Точно свободна") + '</select></div>' +
+    legacyType + option("stream", "Стрим / запланированная игра") + option("off", "Выходной") + (!item ? option("wish", "✦ Хочу коллабу") : "") + '</select></div>' +
     '<div class="field full"><label>Игра / название стрима (для типа «Стрим»)</label><input name="title" maxlength="90" value="' + h(source.title || "") + '" placeholder="Far Far West"></div>' +
     '<div class="field full"><label>Примечания для участниц и модераторов (не видны зрителям)</label><textarea name="details" maxlength="500" placeholder="Например, гости, план или примечания">' + h(source.details || "") + '</textarea></div>' +
     '<div class="field"><label>Дата</label><input type="date" name="date" value="' + h(source.date) + '" required></div>' +
@@ -266,6 +282,89 @@ function eventModal(id) {
     '<div class="form-actions full">' + (item ? '<button type="button" class="button button-subtle" data-action="delete-event" data-id="' + h(id) + '">Удалить</button>' : "") +
     '<button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Сохранить</button></div></form>');
 }
+function wishTimeRow(index, date = (state.date >= mskToday() ? state.date : mskToday()), start = "20:00", end = "23:00") {
+  return '<div class="wish-time-row" data-wish-row><span class="wish-number">Вариант ' + (index + 1) + '</span>' +
+    '<div class="field"><label>Дата</label><input type="date" name="wishDate" value="' + h(date) + '" required></div>' +
+    '<div class="field"><label>Начало, МСК</label><input type="time" name="wishStart" value="' + h(start) + '" required></div>' +
+    '<div class="field"><label>Конец, МСК</label><input type="time" name="wishEnd" value="' + h(end) + '" required></div>' +
+    '<button type="button" class="button button-ghost tiny" data-action="remove-wish-row" aria-label="Удалить вариант">×</button></div>';
+}
+function wishModal() {
+  const others = state.members.filter((member) => member.id !== state.uid).sort((a, b) => a.nick.localeCompare(b.nick, "ru"));
+  const people = others.map((member) => {
+    const text = "Доступность каждого варианта проверится при отправке";
+    const dm = safeUrl(member.telegramDM);
+    return '<div class="wish-person-wrap"><label class="wish-person"><input type="checkbox" name="wishRecipient" value="' + h(member.id) + '">' +
+      '<span class="wish-person-details"><strong>' + h(member.nick || "Участница") + '</strong>' +
+      '<small>' + h(text) + '</small></span></label>' +
+      (dm ? '<a class="wish-contact" href="' + dm + '" target="_blank" rel="noopener noreferrer">ЛС ↗</a>' : "") + '</div>';
+  }).join("");
+  modalOpen('<h2 id="modalTitle">✦ Хочу коллабу</h2><p class="muted">Укажи игру и до пяти вариантов времени. Выбери участниц галочками — каждая получит одно приглашение и сама выберет подходящий вариант.</p>' +
+    '<form data-form="wish"><div class="field"><label>Игра или идея *</label><input type="text" name="game" maxlength="90" placeholder="Например, The Forest" required></div>' +
+    '<div class="section-bar" style="margin:18px 0 9px"><h3>Варианты даты и времени</h3><button class="button button-ghost small" type="button" data-action="add-wish-row">+ Ещё вариант</button></div>' +
+    '<div id="wishRows" class="wish-rows">' + wishTimeRow(0) + '</div>' +
+    '<div class="section-bar" style="margin:22px 0 9px"><h3>Кого пригласить</h3><span class="tiny-note">До 10 участниц</span></div>' +
+    (people ? '<div class="wish-people">' + people + '</div>' : '<div class="notice info">В комнате пока нет других участниц.</div>') +
+    '<div class="field" style="margin-top:17px"><label>Сообщение (необязательно)</label><textarea name="message" maxlength="500" placeholder="Девочки, кто за совместный забег?"></textarea></div>' +
+    '<p class="tiny-note" style="margin:12px 0">Приглашения отправятся выбранным участницам после нажатия кнопки. Ожидающие ответы не блокируют время.</p>' +
+    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Отмена</button>' +
+    '<button type="submit" class="button">Отправить приглашения</button></div></form>');
+}
+async function sendWish(form) {
+  const game = String(form.elements.game.value || "").trim().slice(0, 90);
+  if (!game) throw new Error("Укажи игру или идею коллаба.");
+  const rows = [...form.querySelectorAll("[data-wish-row]")];
+  if (!rows.length || rows.length > 5) throw new Error("Можно выбрать от одного до пяти вариантов времени.");
+  const options = rows.map((row) => ({
+    date: row.querySelector('[name="wishDate"]').value,
+    start: row.querySelector('[name="wishStart"]').value,
+    end: row.querySelector('[name="wishEnd"]').value
+  }));
+  for (const option of options) {
+    if (!isDate(option.date) || !isTime(option.start) || !isTime(option.end) || option.start === option.end)
+      throw new Error("В каждом варианте должны быть правильная дата и разные часы начала и конца.");
+    if (option.date < mskToday()) throw new Error("Вариант не может быть в прошлом.");
+  }
+  if (new Set(options.map((o) => o.date + o.start + o.end)).size !== options.length)
+    throw new Error("Убери повторяющиеся варианты даты и времени.");
+  const selected = [...form.querySelectorAll('[name="wishRecipient"]:checked')].map((x) => x.value);
+  if (!selected.length) throw new Error("Выбери хотя бы одну участницу.");
+  if (selected.length > 10) throw new Error("За один раз можно пригласить максимум 10 участниц.");
+  if (!options.some((o) => availability(state.uid, o) !== "busy"))
+    throw new Error("Все выбранные варианты заняты в твоём календаре.");
+  const message = String(form.elements.message.value || "").trim().slice(0, 500);
+  const success = [], failed = [];
+  for (const uid of selected) {
+    const member = person(uid);
+    if (!member || uid === state.uid) { failed.push("Неизвестная участница"); continue; }
+    if (!options.some((o) => availability(uid, o) !== "busy" && availability(state.uid, o) !== "busy")) {
+      failed.push(member.nick + ": выбранные окна заняты"); continue;
+    }
+    if (proposals().some((p) => p.status === "pending" && p.fromUid === state.uid && p.toUid === uid &&
+      p.game === game && p.date === options[0].date)) {
+      failed.push(member.nick + ": похожее приглашение уже отправлено"); continue;
+    }
+    const ref = doc(collection(db, "proposals"));
+    const first = options[0];
+    const preview = { fromUid: state.uid, toUid: uid, fromName: state.nick, toName: member.nick,
+      date: first.date, start: first.start, end: first.end, game };
+    const batch = writeBatch(db);
+    batch.set(ref, { ...preview, timeOptions: options, message, status: "pending",
+      createdAt: serverTimestamp(), respondedAt: null, replacesId: "" });
+    batch.set(doc(db, "moderatorPending", state.uid, "items", ref.id), preview);
+    batch.set(doc(db, "moderatorPending", uid, "items", ref.id), preview);
+    try { await batch.commit(); success.push(member.nick); }
+    catch (error) { failed.push(member.nick + ": " + readableError(error)); }
+  }
+  if (success.length) {
+    modalClose();
+    state.tab = "inbox"; state.inboxFilter = "all";
+    render();
+    flashMessage("Приглашения отправлены: " + success.join(", ") + "." +
+      (failed.length ? " Не отправлены: " + failed.join("; ") : ""), failed.length > 0);
+  } else throw new Error("Ни одно приглашение не отправлено. " + failed.join("; "));
+}
+
 function inviteModal(uid, replacesId = "") {
   const member = person(uid);
   const previous = replacesId ? state.locks.find((x) => x.id === replacesId) : null;
@@ -407,13 +506,22 @@ async function sendInvite(form) {
   render();
   flashMessage(replacesId ? "Предложение переноса отправлено. Старая коллаба останется в силе до согласия." : "Приглашение отправлено " + member.nick + ".");
 }
-async function respond(id, answer) {
+async function respond(id, answer, optionIndex = 0) {
   const p = proposals().find((entry) => entry.id === id);
   if (!p) throw new Error("Приглашение не найдено.");
   if (!["accepted", "declined", "cancelled"].includes(answer)) throw new Error("Неизвестный ответ.");
   if (answer === "accepted" && (p.toUid !== state.uid || p.status !== "pending")) throw new Error("Принять приглашение может только получатель.");
   if (answer === "declined" && (p.toUid !== state.uid || p.status !== "pending")) throw new Error("Отклонить приглашение может только получатель.");
   if (answer === "cancelled" && p.status !== "pending" && p.status !== "accepted") throw new Error("Это предложение уже завершено.");
+  let selected = p;
+  const choices = Array.isArray(p.timeOptions) ? p.timeOptions : null;
+  if (answer === "accepted" && choices) {
+    if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= choices.length) throw new Error("Выбери предложенный вариант времени.");
+    const chosen = choices[optionIndex];
+    if (!isDate(chosen.date) || !isTime(chosen.start) || !isTime(chosen.end) || chosen.start === chosen.end)
+      throw new Error("Этот вариант времени некорректен.");
+    selected = { ...p, date: chosen.date, start: chosen.start, end: chosen.end };
+  }
   const oldLock = answer === "accepted" && p.replacesId ? state.locks.find((lock) => lock.id === p.replacesId) : null;
   if (answer === "accepted" && p.replacesId && (!oldLock ||
     ![oldLock.fromUid, oldLock.toUid].includes(p.fromUid) ||
@@ -421,12 +529,16 @@ async function respond(id, answer) {
     throw new Error("Исходная коллаба для переноса уже отменена или недоступна.");
   }
   if (answer === "accepted") {
-    const mine = availability(state.uid, p, p.replacesId || "");
-    const theirs = availability(p.fromUid, p, p.replacesId || "");
+    const mine = availability(state.uid, selected, p.replacesId || "");
+    const theirs = availability(p.fromUid, selected, p.replacesId || "");
     if (mine === "busy" || theirs === "busy") throw new Error("На новом времени есть занятость. Выберите другое окно.");
   }
   const batch = writeBatch(db);
-  batch.update(doc(db, "proposals", id), { status: answer, respondedAt: serverTimestamp() });
+  const change = { status: answer, respondedAt: serverTimestamp() };
+  if (answer === "accepted" && choices) Object.assign(change, {
+    chosenIndex: optionIndex, date: selected.date, start: selected.start, end: selected.end
+  });
+  batch.update(doc(db, "proposals", id), change);
   const newLock = doc(db, "collabLocks", id);
   const markers = (proposal) => [proposal.fromUid, proposal.toUid].map((uid) => doc(db, "publicCollabs", uid, "items", proposal.id));
   if (p.status === "pending" && Object.prototype.hasOwnProperty.call(p, "replacesId")) {
@@ -437,9 +549,9 @@ async function respond(id, answer) {
   if (answer === "accepted") {
     batch.set(newLock, {
       fromUid: p.fromUid, toUid: p.toUid, fromName: p.fromName, toName: p.toName,
-      date: p.date, start: p.start, end: p.end, game: p.game
+      date: selected.date, start: selected.start, end: selected.end, game: p.game
     });
-    const marker = { date: p.date, start: p.start, end: p.end, type: "collab", game: "", partner: "" };
+    const marker = { date: selected.date, start: selected.start, end: selected.end, type: "collab", game: "", partner: "" };
     for (const ref of markers(p)) batch.set(ref, marker);
     if (oldLock) {
       batch.update(doc(db, "proposals", oldLock.id), { status: "cancelled", respondedAt: serverTimestamp() });
@@ -601,6 +713,7 @@ document.addEventListener("change", (event) => {
   const select = event.target.closest('form[data-form="event"] select[name="type"]');
   if (!select) return;
   const form = select.form;
+  if (select.value === "wish") { wishModal(); return; }
   if (select.value === "off") {
     form.elements.start.value = "00:00";
     form.elements.end.value = "00:00";
@@ -643,6 +756,28 @@ document.addEventListener("click", async (event) => {
     }
     if (action === "current-month") { state.date = mskToday(); state.month = state.date.slice(0, 7); render(); return; }
     if (action === "new-event") { eventModal(); return; }
+    if (action === "new-wish") { wishModal(); return; }
+    if (action === "add-wish-row") {
+      const list = $("wishRows");
+      if (!list) return;
+      const count = list.querySelectorAll("[data-wish-row]").length;
+      if (count >= 5) { flashMessage("Максимум пять вариантов.", true); return; }
+      const last = list.lastElementChild;
+      const date = last?.querySelector('[name="wishDate"]')?.value || state.date;
+      const start = last?.querySelector('[name="wishStart"]')?.value || "20:00";
+      const end = last?.querySelector('[name="wishEnd"]')?.value || "23:00";
+      list.insertAdjacentHTML("beforeend", wishTimeRow(count, addDays(date, 1), start, end));
+      return;
+    }
+    if (action === "remove-wish-row") {
+      const rows = $("wishRows")?.querySelectorAll("[data-wish-row]");
+      if (rows?.length <= 1) { flashMessage("Оставь хотя бы один вариант.", true); return; }
+      target.closest("[data-wish-row]")?.remove();
+      $("wishRows")?.querySelectorAll(".wish-number").forEach((span, i) => { span.textContent = "Вариант " + (i + 1); });
+      return;
+    }
+    if (action === "connect-twitch") { startTwitchAuthorization(); return; }
+    if (action === "refresh-twitch") { await refreshTwitch(state.members, () => { if (state.tab === "calendar") renderCalendar(); }, true); return; }
     if (action === "whole-day") {
       const form = modal.querySelector('form[data-form="event"]');
       if (form) { form.elements.start.value = "00:00"; form.elements.end.value = "00:00"; }
@@ -690,7 +825,9 @@ document.addEventListener("click", async (event) => {
       const label = target.dataset.answer === "accepted" ? "Принять" : "Подтвердить действие";
       if (target.dataset.answer === "cancelled" && !confirm("Отменить коллаб? Он исчезнет из календарей.")) return;
       state.busy = true; target.disabled = true;
-      try { await respond(target.dataset.id, target.dataset.answer); }
+      const choice = target.closest(".invite")?.querySelector("[data-proposal-choice]");
+      const chosenIndex = choice ? Number(choice.value) : 0;
+      try { await respond(target.dataset.id, target.dataset.answer, chosenIndex); }
       finally { state.busy = false; target.disabled = false; }
       return;
     }
@@ -719,6 +856,7 @@ document.addEventListener("submit", async (event) => {
     else if (state.authorized && type === "collab-visibility") await saveCollabVisibility(form);
     else if (state.authorized && type === "profile") await saveProfile(form);
     else if (state.authorized && type === "invite") await sendInvite(form);
+    else if (state.authorized && type === "wish") await sendWish(form);
   } catch (error) { flashMessage(readableError(error), true); console.error(error); }
   finally { state.busy = false; if (button?.isConnected) button.disabled = false; }
 });
@@ -727,4 +865,10 @@ $("logout").addEventListener("click", async () => {
   location.hash = "";
 });
 window.addEventListener("hashchange", () => location.reload());
+// Refresh visible Twitch status while the calendar tab is open.
+setInterval(() => {
+  if (state.authorized && state.tab === "calendar") {
+    refreshTwitch(state.members, () => renderCalendar());
+  }
+}, 120000);
 boot();

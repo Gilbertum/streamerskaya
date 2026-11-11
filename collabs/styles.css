@@ -95,3 +95,58 @@
 @media(max-width:900px){.mod-head{flex-direction:column;align-items:flex-start}.mod-channel-controls{max-width:none}}
 @media(max-width:700px){.week-board{grid-template-columns:repeat(2,minmax(0,1fr))}.event{flex-direction:column}.event-actions{justify-content:flex-start;max-width:none}.mod-day{min-height:80px}}
 @media(max-width:380px){.week-board{grid-template-columns:1fr}}
+
+
+/* v4: calendar shows types instead of meaningless "1 событий" counters */
+.day{min-height:94px}
+.calendar-day-labels{display:flex;flex-direction:column;align-items:stretch;gap:4px;width:100%;min-width:0}
+.calendar-day-label{display:block;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;border-radius:5px;padding:3px 6px;background:#39303d;color:#e8c2cc;font-weight:700;font-size:10px;line-height:1.4}
+.calendar-day-label.stream{background:#643744;color:#ffd2dc}
+.calendar-day-label.off{background:#353d55;color:#d5def9}
+.calendar-day-label.collab{background:#304664;color:#d5e6ff}
+.calendar-day-label.busy{background:#594044;color:#f2c3c4}
+.calendar-day-label.maybe{background:#52412c;color:#f3d7a4}
+.calendar-day-label.free{background:#29473c;color:#bce7cb}
+.calendar-more{font-size:10px;color:#b9b5c3;text-align:left;padding-left:4px}
+
+/* Twitch panel: not showing "offline" until authenticated API has confirmed it */
+.twitch-panel{margin-bottom:19px}
+.twitch-panel .section-bar{margin-bottom:14px}
+.twitch-people{display:flex;overflow-x:auto;gap:10px;padding:2px 1px 10px;scrollbar-width:thin}
+.twitch-person{flex:0 0 225px;min-width:0;display:grid;grid-template-columns:42px 1fr;grid-template-rows:1fr auto;column-gap:10px;row-gap:9px;padding:13px;background:#1b1d27;border:1px solid #40414e;border-radius:12px}
+.twitch-avatar{width:42px;height:42px;border-radius:11px;background:#462b3b;color:#ffb7c6;font-weight:800;font-size:20px;display:flex;justify-content:center;align-items:center;overflow:hidden;grid-column:1;grid-row:1}
+.twitch-avatar img{width:100%;height:100%;object-fit:cover}
+.twitch-person-text{min-width:0;display:flex;flex-direction:column;justify-content:center;gap:3px;grid-column:2;grid-row:1}
+.twitch-person-text strong{font-size:13px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.twitch-status{font-size:11px;white-space:nowrap}
+.twitch-status.live{color:#91ddb0}
+.twitch-status.offline{color:#a7aab8}
+.twitch-status.unknown{color:#e0bd86}
+.twitch-person>a{grid-column:1 / -1;font-size:12px}
+.twitch-help{margin-top:9px}
+
+/* Collaborative wish: one dialog, multiple alternative slots and multi-select */
+#modal:has(form[data-form="wish"]) .modal-window{width:min(780px,100%)}
+.wish-rows{display:flex;flex-direction:column;gap:9px}
+.wish-time-row{display:grid;grid-template-columns:74px minmax(150px,1fr) 130px 130px 31px;gap:8px;align-items:end;padding:12px;border:1px solid #454454;border-radius:11px;background:#191b25}
+.wish-number{font-size:11px;color:#c7bdc9;font-weight:750;align-self:center}
+.wish-time-row .field{min-width:0}
+.wish-time-row .field input{padding:8px;font-size:13px}
+.wish-time-row .field label{font-size:10px}
+.wish-time-row .button{min-width:30px;min-height:37px;margin-bottom:2px}
+.wish-people{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.wish-person{position:relative;display:flex;align-items:center;gap:10px;border:1px solid #474657;background:#20212b;border-radius:10px;padding:10px 12px;cursor:pointer;min-width:0}
+.wish-person:hover{border-color:#be6476}
+.wish-person:has(input:checked){background:#3b2933;border-color:#d16d80}
+.wish-person input{width:17px;height:17px;accent-color:#de5b70;flex-shrink:0}
+.wish-person-details{min-width:0;display:flex;flex-direction:column;gap:3px}
+.wish-person-details strong{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wish-person-details small{font-size:10px;color:#adadbc}
+.wish-contact{font-size:11px;align-self:center;margin-top:-5px;margin-left:8px}
+@media(max-width:800px){.wish-time-row{grid-template-columns:65px minmax(110px,1fr) 90px 90px 29px;gap:5px;padding:8px}.wish-time-row .field input{font-size:11px;padding:7px 4px}}
+@media(max-width:610px){.day{min-height:68px}.calendar-day-label{font-size:8px;padding:2px 3px}.wish-time-row{grid-template-columns:1fr 1fr 1fr;gap:8px}.wish-time-row .wish-number{grid-column:1/-1}.wish-time-row>.button{position:absolute;right:25px;margin-top:-8px}.wish-time-row{position:relative}.wish-time-row .field{min-width:0}.wish-time-row .field input{font-size:12px}.wish-people{grid-template-columns:1fr}.twitch-person{flex-basis:205px}}
+@media(max-width:380px){.wish-time-row{grid-template-columns:1fr 1fr}.wish-time-row .field:first-of-type{grid-column:1/-1}.day-number{font-size:10px}}
+
+.wish-person-wrap{display:flex;flex-direction:column;gap:2px;min-width:0}
+.wish-person-wrap .wish-person{flex:1}
+.wish-person-wrap .wish-contact{align-self:flex-start;margin:0 0 0 12px}

@@ -45,9 +45,35 @@ service cloud.firestore {
         && d.public is bool && (d.type in ['stream','off'] || d.public == false)
         && d.updatedAt is timestamp;
     }
+    function validWishChoice(t) {
+      return t is map && t.keys().hasAll(['date','start','end'])
+        && t.keys().hasOnly(['date','start','end']) && goodWindow(t);
+    }
+    function validWishOptions(d) {
+      return !d.keys().hasAny(['timeOptions']) || (
+        d.timeOptions is list && d.timeOptions.size() >= 1 && d.timeOptions.size() <= 5
+        && validWishChoice(d.timeOptions[0])
+        && d.timeOptions[0].date == d.date
+        && d.timeOptions[0].start == d.start
+        && d.timeOptions[0].end == d.end
+        && (d.timeOptions.size() < 2 || validWishChoice(d.timeOptions[1]))
+        && (d.timeOptions.size() < 3 || validWishChoice(d.timeOptions[2]))
+        && (d.timeOptions.size() < 4 || validWishChoice(d.timeOptions[3]))
+        && (d.timeOptions.size() < 5 || validWishChoice(d.timeOptions[4]))
+      );
+    }
+    function allowedSelectedTime(oldData, newData) {
+      return oldData.keys().hasAny(['timeOptions'])
+        && newData.chosenIndex is int
+        && newData.chosenIndex >= 0 && newData.chosenIndex < oldData.timeOptions.size()
+        && validWishChoice(oldData.timeOptions[newData.chosenIndex])
+        && newData.date == oldData.timeOptions[newData.chosenIndex].date
+        && newData.start == oldData.timeOptions[newData.chosenIndex].start
+        && newData.end == oldData.timeOptions[newData.chosenIndex].end;
+    }
     function goodProposal(d) {
       return d.keys().hasAll(['fromUid','toUid','fromName','toName','date','start','end','game','message','status','createdAt','respondedAt'])
-        && d.keys().hasOnly(['fromUid','toUid','fromName','toName','date','start','end','game','message','status','createdAt','respondedAt','replacesId'])
+        && d.keys().hasOnly(['fromUid','toUid','fromName','toName','date','start','end','game','message','status','createdAt','respondedAt','replacesId','timeOptions'])
         && d.fromUid is string && d.fromUid.size() <= 128
         && d.toUid is string && d.toUid.size() <= 128
         && d.fromUid != d.toUid
@@ -57,6 +83,7 @@ service cloud.firestore {
         && d.game is string && d.game.size() >= 1 && d.game.size() <= 90
         && d.message is string && d.message.size() <= 500
         && d.get('replacesId','') is string && d.get('replacesId','').size() <= 128
+        && validWishOptions(d)
         && d.status == 'pending'
         && d.createdAt is timestamp && d.respondedAt == null;
     }
@@ -115,20 +142,35 @@ service cloud.firestore {
               ]));
 
       allow update: if member()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt'])
         && request.resource.data.respondedAt is timestamp
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt','chosenIndex','date','start','end'])
         && (
           (resource.data.toUid == request.auth.uid
             && resource.data.status == 'pending'
-            && request.resource.data.status in ['accepted','declined'])
+            && request.resource.data.status in ['accepted','declined']
+            && (
+              (request.resource.data.status == 'declined'
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt']))
+              ||
+              (request.resource.data.status == 'accepted'
+                && (
+                  (!resource.data.keys().hasAny(['timeOptions'])
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt']))
+                  ||
+                  (resource.data.keys().hasAny(['timeOptions'])
+                    && allowedSelectedTime(resource.data, request.resource.data))
+                ))
+            ))
           ||
           (resource.data.fromUid == request.auth.uid
             && resource.data.status == 'pending'
-            && request.resource.data.status == 'cancelled')
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt']))
           ||
           ((resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid)
             && resource.data.status == 'accepted'
-            && request.resource.data.status == 'cancelled')
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt']))
         );
       allow delete: if false;
     }
