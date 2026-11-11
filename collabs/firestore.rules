@@ -20,12 +20,13 @@ service cloud.firestore {
       return goodDate(d.date) && goodTime(d.start) && goodTime(d.end) && (d.start != d.end || (d.start == '00:00' && d.end == '00:00'));
     }
     function goodMember(d) {
-      return d.keys().hasAll(['nick','twitch','steam','telegram','youtube','tiktok','discord','weekdays','weekend','updatedAt'])
-        && d.keys().hasOnly(['nick','twitch','steam','telegram','youtube','tiktok','discord','weekdays','weekend','updatedAt'])
+      return d.keys().hasAll(['nick','twitch','steam','telegram','telegramDM','youtube','tiktok','discord','weekdays','weekend','updatedAt'])
+        && d.keys().hasOnly(['nick','twitch','steam','telegram','telegramDM','youtube','tiktok','discord','weekdays','weekend','updatedAt'])
         && d.nick is string && d.nick.size() >= 2 && d.nick.size() <= 40
         && d.twitch is string && d.twitch.size() <= 300
         && d.steam is string && d.steam.size() <= 300
         && d.telegram is string && d.telegram.size() <= 300
+        && d.telegramDM is string && d.telegramDM.size() <= 300
         && d.youtube is string && d.youtube.size() <= 300
         && d.tiktok is string && d.tiktok.size() <= 300
         && d.discord is string && d.discord.size() <= 300
@@ -35,17 +36,18 @@ service cloud.firestore {
     }
     function goodSlot(d) {
       return d.keys().hasAll(['ownerUid','date','start','end','type','title','public','updatedAt'])
-        && d.keys().hasOnly(['ownerUid','date','start','end','type','title','public','updatedAt'])
+        && d.keys().hasOnly(['ownerUid','date','start','end','type','title','details','public','updatedAt'])
         && d.ownerUid is string && d.ownerUid.size() <= 128
         && goodWindow(d)
         && d.type in ['stream','off','busy','maybe','free']
         && d.title is string && d.title.size() <= 90
+        && d.get('details','') is string && d.get('details','').size() <= 500
         && d.public is bool && (d.type in ['stream','off'] || d.public == false)
         && d.updatedAt is timestamp;
     }
     function goodProposal(d) {
       return d.keys().hasAll(['fromUid','toUid','fromName','toName','date','start','end','game','message','status','createdAt','respondedAt'])
-        && d.keys().hasOnly(['fromUid','toUid','fromName','toName','date','start','end','game','message','status','createdAt','respondedAt'])
+        && d.keys().hasOnly(['fromUid','toUid','fromName','toName','date','start','end','game','message','status','createdAt','respondedAt','replacesId'])
         && d.fromUid is string && d.fromUid.size() <= 128
         && d.toUid is string && d.toUid.size() <= 128
         && d.fromUid != d.toUid
@@ -54,6 +56,7 @@ service cloud.firestore {
         && goodWindow(d)
         && d.game is string && d.game.size() >= 1 && d.game.size() <= 90
         && d.message is string && d.message.size() <= 500
+        && d.get('replacesId','') is string && d.get('replacesId','').size() <= 128
         && d.status == 'pending'
         && d.createdAt is timestamp && d.respondedAt == null;
     }
@@ -99,7 +102,17 @@ service cloud.firestore {
       allow create: if member()
         && request.resource.data.fromUid == request.auth.uid
         && isAllowed(request.resource.data.toUid)
-        && goodProposal(request.resource.data);
+        && goodProposal(request.resource.data)
+        && (request.resource.data.get('replacesId','') == '' ||
+            (exists(/databases/$(database)/documents/collabLocks/$(request.resource.data.replacesId))
+              && request.resource.data.fromUid in [
+                get(/databases/$(database)/documents/collabLocks/$(request.resource.data.replacesId)).data.fromUid,
+                get(/databases/$(database)/documents/collabLocks/$(request.resource.data.replacesId)).data.toUid
+              ]
+              && request.resource.data.toUid in [
+                get(/databases/$(database)/documents/collabLocks/$(request.resource.data.replacesId)).data.fromUid,
+                get(/databases/$(database)/documents/collabLocks/$(request.resource.data.replacesId)).data.toUid
+              ]));
 
       allow update: if member()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt'])
@@ -167,24 +180,66 @@ service cloud.firestore {
       allow list, create, update, delete: if false;
     }
 
-    // По одному обезличенному маркеру на каждого участника подтверждённого коллаба.
-    // Публично читаются ТОЛЬКО тип и дата/часы, без игры, имён и сообщения.
-    match /publicCollabs/{ownerUid}/items/{proposalId} {
-      allow get, list: if true;
-      allow create: if member()
-        && request.resource.data.keys().hasAll(['type','date','start','end'])
-        && request.resource.data.keys().hasOnly(['type','date','start','end'])
-        && request.resource.data.type == 'collab'
-        && goodWindow(request.resource.data)
-        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.status == 'accepted'
-        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid == request.auth.uid
-        && ownerUid in [
+    // Модератор видит только безопасные анонсы ожидающих приглашений (без переписки).
+    function validPendingPreview(d, proposalId, ownerUid) {
+      let p = getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data;
+      return d.keys().hasAll(['fromUid','toUid','fromName','toName','date','start','end','game'])
+        && d.keys().hasOnly(['fromUid','toUid','fromName','toName','date','start','end','game'])
+        && d.fromUid == p.fromUid && d.toUid == p.toUid
+        && d.fromName == p.fromName && d.toName == p.toName
+        && d.date == p.date && d.start == p.start && d.end == p.end && d.game == p.game
+        && p.status == 'pending' && p.fromUid == request.auth.uid
+        && ownerUid in [p.fromUid,p.toUid];
+    }
+
+    match /moderatorPending/{ownerUid}/items/{proposalId} {
+      allow read: if isModeratorOf(ownerUid);
+      allow create: if member() && validPendingPreview(request.resource.data, proposalId, ownerUid);
+      allow delete: if member()
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.status in ['accepted','declined','cancelled']
+        && request.auth.uid in [
           getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.fromUid,
           getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid
         ]
-        && request.resource.data.date == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.date
-        && request.resource.data.start == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.start
-        && request.resource.data.end == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.end;
+        && ownerUid in [
+          getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.fromUid,
+          getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid
+        ];
+      allow update: if false;
+    }
+
+    // Зритель видит только то, что участник коллабы явно раскрыл для СВОЕГО канала.
+    // Игра/партнёр по умолчанию пустые, сообщения не сохраняются в публичной коллекции.
+    function validPublicMarker(d, ownerUid, proposalId) {
+      let lock = getAfter(/databases/$(database)/documents/collabLocks/$(proposalId)).data;
+      return d.keys().hasAll(['type','date','start','end','game','partner'])
+        && d.keys().hasOnly(['type','date','start','end','game','partner'])
+        && d.type == 'collab' && goodWindow(d)
+        && ownerUid in [lock.fromUid,lock.toUid]
+        && d.date == lock.date && d.start == lock.start && d.end == lock.end
+        && d.game is string && d.game.size() <= 90
+        && (d.game == '' || d.game == lock.game)
+        && d.partner is string && d.partner.size() <= 40;
+    }
+
+    match /publicCollabs/{ownerUid}/items/{proposalId} {
+      allow get, list: if true;
+
+      // Получатель принимает приглашение и атомарно создаёт пустые маркеры для обоих.
+      // Также каждый участник может восстановить свой собственный маркер из старой коллабы.
+      allow create: if member() && validPublicMarker(request.resource.data, ownerUid, proposalId)
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.status == 'accepted'
+        && (
+          (request.auth.uid == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid
+            && request.resource.data.game == '' && request.resource.data.partner == '')
+          ||
+          (ownerUid == request.auth.uid)
+        );
+
+      // Пользователь не может менять публичные поля партнёра.
+      allow update: if member() && me(ownerUid)
+        && validPublicMarker(request.resource.data, ownerUid, proposalId);
+
       allow delete: if member()
         && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.status == 'cancelled'
         && request.auth.uid in [
@@ -195,7 +250,6 @@ service cloud.firestore {
           getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.fromUid,
           getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid
         ];
-      allow update: if false;
     }
 
     match /{document=**} { allow read, write: if false; }

@@ -1,5 +1,6 @@
 import { firebaseConfig } from "./firebase-config.js";
-import { startPublicView, startModeratorView } from "./views.js";
+import { startPublicView } from "./views.js";
+import { startModeratorV3 } from "./moderator-v3.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, getDocs, collection, query, where, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
@@ -86,6 +87,8 @@ function person(id) { return state.members.find((m) => m.id === id); }
 function nameOf(id) { return person(id)?.nick || "Стример"; }
 function profileLinks(member) {
   const links = [];
+  const dm = safeUrl(member?.telegramDM);
+  if (dm) links.push('<a href="' + dm + '" target="_blank" rel="noopener noreferrer">✉ Написать в Telegram ↗</a>');
   const twitch = safeUrl(member?.twitch);
   const steam = safeUrl(member?.steam);
   if (twitch) links.push('<a href="' + twitch + '" target="_blank" rel="noopener noreferrer">Twitch ↗</a>');
@@ -106,14 +109,14 @@ function myItems(date) {
     .map((item) => ({ ...item, id: item.id, type: "collab", kind: "lock" }));
   return [...slots, ...locks].sort((a, b) => a.start.localeCompare(b.start));
 }
-function availability(memberId, request) {
+function availability(memberId, request, ignoreLockId = "") {
   const problems = [];
   for (const item of state.slots) {
     if (item.ownerUid !== memberId || item.type === "free") continue;
     if (overlaps(item, request)) problems.push(item.type === "maybe" ? "maybe" : "busy");
   }
   for (const item of state.locks) {
-    if (item.fromUid !== memberId && item.toUid !== memberId) continue;
+    if (item.id === ignoreLockId || (item.fromUid !== memberId && item.toUid !== memberId)) continue;
     if (overlaps(item, request)) problems.push("busy");
   }
   if (problems.includes("busy")) return "busy";
@@ -157,7 +160,9 @@ function renderCalendar() {
     const isLock = item.kind === "lock";
     const title = isLock ? ("Коллаб: " + item.game) : (item.type === "stream" ? (item.title || "Без названия") : typeName(item.type));
     const other = isLock ? (' · с ' + nameOf(item.fromUid === state.uid ? item.toUid : item.fromUid)) : "";
-    const controls = isLock ? "" : '<button class="button button-ghost tiny" data-action="edit-event" data-id="' + h(item.id) + '">Изменить</button>';
+    const controls = isLock
+      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="visibility-collab" data-id="' + h(item.id) + '">Зрителям</button><button class="button button-ghost tiny" data-action="move-collab" data-id="' + h(item.id) + '">Перенести</button><button class="button button-subtle tiny" data-action="cancel-collab" data-id="' + h(item.id) + '">Отменить</button></div>'
+      : '<div class="event-actions"><button class="button button-ghost tiny" data-action="edit-event" data-id="' + h(item.id) + '">Изменить</button><button class="button button-subtle tiny" data-action="delete-event" data-id="' + h(item.id) + '">Удалить</button></div>';
     return '<div class="event"><div><div class="event-title">' + h(title) + '</div><div class="event-when">' + fmtTime(item) + h(other) + '</div>' +
       '<div style="margin-top:7px"><span class="tag ' + h(item.type) + '">' + typeName(item.type) + '</span>' +
       (!isLock && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
@@ -206,7 +211,7 @@ function renderInbox() {
       controls.push('<button class="button button-ghost small" data-action="respond" data-answer="declined" data-id="' + h(p.id) + '">Отклонить</button>');
     }
     if ((p.status === "pending" && !inbound) || p.status === "accepted") controls.push('<button class="button button-subtle small" data-action="respond" data-answer="cancelled" data-id="' + h(p.id) + '">Отменить</button>');
-    return '<article class="invite"><div class="invite-top"><div><div class="invite-title">' + h(p.game) + '</div><div class="invite-detail">' + (inbound ? 'От ' : 'Для ') + h(someone) + ' · ' + h(dateLabel(p.date)) + ' · ' + fmtTime(p) + '</div></div><span class="tag status-' + h(p.status) + '">' + h(statusNames[p.status] || p.status) + '</span></div>' +
+    return '<article class="invite"><div class="invite-top"><div><div class="invite-title">' + (p.replacesId ? '↪ Перенос · ' : '') + h(p.game) + '</div><div class="invite-detail">' + (inbound ? 'От ' : 'Для ') + h(someone) + ' · ' + h(dateLabel(p.date)) + ' · ' + fmtTime(p) + '</div></div><span class="tag status-' + h(p.status) + '">' + h(statusNames[p.status] || p.status) + '</span></div>' +
       (p.message ? '<div class="invite-message">' + h(p.message) + '</div>' : "") +
       '<div class="button-row">' + controls.join("") + '</div></article>';
   }).join("");
@@ -225,6 +230,7 @@ function renderProfile() {
     '<div class="field full"><label for="twitch">Ссылка на Twitch</label><input id="twitch" name="twitch" type="url" placeholder="https://www.twitch.tv/..." value="' + h(m.twitch || "") + '"></div>' +
     '<div class="field full"><label for="steam">Ссылка на Steam</label><input id="steam" name="steam" type="url" placeholder="https://steamcommunity.com/..." value="' + h(m.steam || "") + '"></div>' +
     '<div class="field"><label for="telegram">Telegram</label><input id="telegram" name="telegram" type="url" placeholder="https://t.me/..." value="' + h(m.telegram || "") + '"></div>' +
+    '<div class="field full"><label for="telegramDM">Личный Telegram для связи со стримерами (не виден зрителям)</label><input id="telegramDM" name="telegramDM" type="url" placeholder="https://t.me/your_username" value="' + h(m.telegramDM || "") + '"></div>' +
     '<div class="field"><label for="youtube">YouTube</label><input id="youtube" name="youtube" type="url" placeholder="https://www.youtube.com/..." value="' + h(m.youtube || "") + '"></div>' +
     '<div class="field"><label for="tiktok">TikTok</label><input id="tiktok" name="tiktok" type="url" placeholder="https://www.tiktok.com/@..." value="' + h(m.tiktok || "") + '"></div>' +
     '<div class="field"><label for="discord">Discord</label><input id="discord" name="discord" type="url" placeholder="https://discord.gg/..." value="' + h(m.discord || "") + '"></div>' +
@@ -232,7 +238,7 @@ function renderProfile() {
     '<div class="field"><label for="weekend">Обычно в выходные (МСК)</label><input id="weekend" name="weekend" maxlength="80" placeholder="15:00–00:00" value="' + h(m.weekend || "") + '"></div>' +
     '<div class="full"><p class="tiny-note">Обычное время — справочная подсказка. Фактическая занятость определяется отметками в календаре.</p></div>' +
     '<div class="full"><button class="button" type="submit">Сохранить профиль</button></div></form></section>' +
-    '<section class="panel"><h2>Ссылка для зрителей</h2><p class="muted">Зрители смогут увидеть только события с отметкой «Показывать в публичном расписании».</p><div class="profile-link">' + h(publicLink(state.uid)) + '</div>' +
+    '<section class="panel"><h2>Ссылка для зрителей</h2><p class="muted">Зрители смогут увидеть только события с отметкой «Не показывать зрителям».</p><div class="profile-link">' + h(publicLink(state.uid)) + '</div>' +
     '<div class="button-row"><button class="button" data-action="copy-public">Копировать ссылку</button><a class="button button-ghost" href="' + h(publicLink(state.uid)) + '" target="_blank" rel="noopener noreferrer">Посмотреть ↗</a></div>' +
     '<div class="notice info">Дни «недоступна» и «под вопросом», переписка и приглашения не попадут в ссылку для сообщества.</div>' +
     '<h3 style="margin-top:26px">Ссылка для модераторов</h3><p class="muted">Месяц и детали подтверждённых коллабов. Доступ есть только у тех, кому разрешение выдано в Firebase.</p>' +
@@ -244,31 +250,34 @@ function renderProfile() {
 }
 function eventModal(id) {
   const item = state.slots.find((x) => x.id === id && x.ownerUid === state.uid);
-  const source = item || { date: state.date, start: "20:00", end: "23:00", type: "stream", title: "", public: false };
+  const source = item || { date: state.date, start: "20:00", end: "23:00", type: "stream", title: "", public: true };
   const option = (value, label) => '<option value="' + value + '"' + (source.type === value ? ' selected' : "") + '>' + label + '</option>';
   modalOpen('<h2 id="modalTitle">' + (item ? "Редактировать событие" : "Новое событие") + '</h2><p class="muted">Дату и часы вводим по Москве. Пустой день считается свободным.</p>' +
     '<form data-form="event" data-id="' + h(id || "") + '" class="form-grid"><div class="field full"><label>Тип отметки</label><select name="type">' +
     option("stream", "Стрим / запланированная игра") + option("off", "Выходной (можно показать зрителям)") + option("busy", "Не могу коллабиться") + option("maybe", "Под вопросом") + option("free", "Точно свободна") + '</select></div>' +
     '<div class="field full"><label>Игра / название стрима (для типа «Стрим»)</label><input name="title" maxlength="90" value="' + h(source.title || "") + '" placeholder="Far Far West"></div>' +
+    '<div class="field full"><label>Примечания для участниц и модераторов (не видны зрителям)</label><textarea name="details" maxlength="500" placeholder="Например, гости, план или примечания">' + h(source.details || "") + '</textarea></div>' +
     '<div class="field"><label>Дата</label><input type="date" name="date" value="' + h(source.date) + '" required></div>' +
     '<div class="field"><label>Начало, МСК</label><input type="time" name="start" value="' + h(source.start) + '" required></div>' +
     '<div class="field"><label>Конец, МСК</label><input type="time" name="end" value="' + h(source.end) + '" required></div>' +
     '<div class="full"><button type="button" class="button button-ghost small" data-action="whole-day">Отметить весь день (00:00–00:00)</button></div>' +
-    '<label class="check-line" style="align-self:end;padding-bottom:9px"><input name="public" type="checkbox" ' + (source.public ? "checked" : "") + '>Показать зрителям</label>' +
-    '<p class="tiny-note full">Публичная галочка работает для типов «Стрим» и «Выходной». Подробности коллабов для зрителей скрыты.</p>' +
+    '<label class="check-line" style="align-self:end;padding-bottom:9px"><input name="hidePublic" type="checkbox" ' + (source.public === false ? "checked" : "") + '>Не показывать зрителям</label>' +
+    '<p class="tiny-note full">Стримы и выходные публикуются автоматически. Галочка скрывает событие. У коллабов отдельные настройки видимости.</p>' +
     '<div class="form-actions full">' + (item ? '<button type="button" class="button button-subtle" data-action="delete-event" data-id="' + h(id) + '">Удалить</button>' : "") +
     '<button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Сохранить</button></div></form>');
 }
-function inviteModal(uid) {
+function inviteModal(uid, replacesId = "") {
   const member = person(uid);
+  const previous = replacesId ? state.locks.find((x) => x.id === replacesId) : null;
+  if (replacesId && !previous) { flashMessage("Исходная коллаба не найдена.", true); return; }
   if (!member) return;
-  modalOpen('<h2 id="modalTitle">Пригласить ' + h(member.nick) + '</h2><p class="muted">Отправь предложение. После принятия обе участницы увидят коллаб в календаре.</p>' +
+  modalOpen('<h2 id="modalTitle">' + (replacesId ? "Предложить перенос: " : "Пригласить ") + h(member.nick) + '</h2><p class="muted">' + (replacesId ? "Старый подтверждённый коллаб сохранится до принятия новых даты и времени второй стороной." : "Отправь предложение. После принятия обе участницы увидят коллаб в календаре.") + '</p>' +
     '<div class="links" style="margin:12px 0 20px">' + profileLinks(member) + '</div>' +
-    '<form data-form="invite" data-uid="' + h(uid) + '" class="form-grid">' +
-    '<div class="field full"><label>Игра или формат</label><input name="game" maxlength="90" required value="' + h(state.search.game) + '"></div>' +
-    '<div class="field"><label>Дата</label><input type="date" name="date" required value="' + h(state.search.date) + '"></div>' +
-    '<div class="field"><label>Начало, МСК</label><input type="time" name="start" required value="' + h(state.search.start) + '"></div>' +
-    '<div class="field"><label>Конец, МСК</label><input type="time" name="end" required value="' + h(state.search.end) + '"></div>' +
+    '<form data-form="invite" data-uid="' + h(uid) + '" data-replaces="' + h(replacesId) + '" class="form-grid">' +
+    '<div class="field full"><label>Игра или формат</label><input name="game" maxlength="90" required value="' + h(previous?.game || state.search.game) + '"></div>' +
+    '<div class="field"><label>Дата</label><input type="date" name="date" required value="' + h(previous ? addDays(previous.date, 1) : state.search.date) + '"></div>' +
+    '<div class="field"><label>Начало, МСК</label><input type="time" name="start" required value="' + h(previous?.start || state.search.start) + '"></div>' +
+    '<div class="field"><label>Конец, МСК</label><input type="time" name="end" required value="' + h(previous?.end || state.search.end) + '"></div>' +
     '<div class="field full"><label>Сообщение (необязательно)</label><textarea name="message" maxlength="500" placeholder="Давай попробуем пройти эту игру вместе?"></textarea></div>' +
     '<div class="form-actions full"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Отправить приглашение</button></div></form>');
 }
@@ -288,6 +297,37 @@ async function publishPublicSchedule() {
     nick: m.nick || state.nick, twitch: m.twitch || "", telegram: m.telegram || "", youtube: m.youtube || "", tiktok: m.tiktok || "", discord: m.discord || "", events, updatedAt: serverTimestamp()
   });
 }
+async function collabVisibilityModal(id) {
+  const lock = state.locks.find((x) => x.id === id && [x.fromUid, x.toUid].includes(state.uid));
+  if (!lock) throw new Error("Коллаба не найдена.");
+  const marker = await getDoc(doc(db, "publicCollabs", state.uid, "items", id));
+  const v = marker.exists() ? marker.data() : {};
+  const otherUid = lock.fromUid === state.uid ? lock.toUid : lock.fromUid;
+  modalOpen('<h2 id="modalTitle">Что увидят твои зрители?</h2>' +
+    '<p class="sub">Только для твоего публичного расписания. По умолчанию игра и партнёр скрыты. У второго участника настройки независимые.</p>' +
+    '<div class="panel-lite" style="margin:14px 0"><strong>' + h(lock.game || "Игра не указана") + '</strong><p class="tiny-note">С ' + h(nameOf(otherUid)) + ' · ' + h(dateLabel(lock.date)) + ' · ' + fmtTime(lock) + ' МСК</p></div>' +
+    '<form data-form="collab-visibility" data-id="' + h(id) + '">' +
+    '<label class="check-line" style="margin:14px 0"><input name="showGame" type="checkbox"' + (v.game ? " checked" : "") + '>Показывать название игры</label>' +
+    '<label class="check-line" style="margin:14px 0"><input name="showPartner" type="checkbox"' + (v.partner ? " checked" : "") + '>Показывать ник участника</label>' +
+    '<p class="tiny-note">Учитывай договорённости с партнёром, прежде чем раскрывать информацию.</p>' +
+    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Отмена</button>' +
+    '<button type="submit" class="button">Сохранить видимость</button></div></form>');
+}
+async function saveCollabVisibility(form) {
+  const id = form.dataset.id;
+  const lock = state.locks.find((x) => x.id === id && [x.fromUid, x.toUid].includes(state.uid));
+  if (!lock) throw new Error("Коллаба уже отменена.");
+  const otherUid = lock.fromUid === state.uid ? lock.toUid : lock.fromUid;
+  const showGame = form.elements.showGame.checked;
+  const showPartner = form.elements.showPartner.checked;
+  await setDoc(doc(db, "publicCollabs", state.uid, "items", id), {
+    date: lock.date, start: lock.start, end: lock.end, type: "collab",
+    game: showGame ? String(lock.game || "").slice(0, 90) : "",
+    partner: showPartner ? String(nameOf(otherUid)).slice(0, 40) : ""
+  });
+  modalClose();
+  flashMessage("Видимость коллабы для твоих зрителей обновлена.");
+}
 async function saveEvent(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   if (!isDate(data.date) || !isTime(data.start) || !isTime(data.end) || (data.start === data.end && data.start !== "00:00")) throw new Error("Укажи корректные часы. Для полного дня используй 00:00–00:00.");
@@ -296,7 +336,8 @@ async function saveEvent(form) {
   const record = {
     ownerUid: state.uid, date: data.date, start: data.start, end: data.end,
     type: data.type, title: data.type === "stream" ? String(data.title || "").trim().slice(0, 90) : "",
-    public: ["stream", "off"].includes(data.type) && data.public === "on",
+    details: String(data.details || "").trim().slice(0, 500),
+    public: ["stream", "off"].includes(data.type) && data.hidePublic !== "on",
     updatedAt: serverTimestamp()
   };
   if (form.dataset.id) await updateDoc(doc(db, "slots", form.dataset.id), record);
@@ -312,11 +353,12 @@ async function saveProfile(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   const nick = String(data.nick || "").trim().slice(0, 40);
   if (nick.length < 2) throw new Error("Никнейм должен быть не короче двух символов.");
-  for (const key of ["twitch", "steam", "telegram", "youtube", "tiktok", "discord"]) if (data[key] && !safeUrl(data[key])) throw new Error("Для ссылок нужен полный адрес https://...");
+  for (const key of ["twitch", "steam", "telegram", "telegramDM", "youtube", "tiktok", "discord"]) if (data[key] && !safeUrl(data[key])) throw new Error("Для ссылок нужен полный адрес https://...");
   const member = {
     nick, twitch: String(data.twitch || "").trim().slice(0, 300),
     steam: String(data.steam || "").trim().slice(0, 300),
     telegram: String(data.telegram || "").trim().slice(0, 300),
+    telegramDM: String(data.telegramDM || "").trim().slice(0, 300),
     youtube: String(data.youtube || "").trim().slice(0, 300),
     tiktok: String(data.tiktok || "").trim().slice(0, 300),
     discord: String(data.discord || "").trim().slice(0, 300),
@@ -341,21 +383,29 @@ async function sendInvite(form) {
   const game = String(data.game || "").trim().slice(0, 90);
   if (!game) throw new Error("Укажи игру или формат.");
   const request = { date: data.date, start: data.start, end: data.end };
-  if (availability(uid, request) === "busy") throw new Error("Это окно уже занято. Выбери другое время.");
-  if (availability(state.uid, request) === "busy") throw new Error("В твоём расписании уже занято это время.");
+  const replacesId = form.dataset.replaces || "";
+  if (replacesId && !state.locks.some((x) => x.id === replacesId && [x.fromUid, x.toUid].includes(uid) && [x.fromUid, x.toUid].includes(state.uid))) throw new Error("Старая коллаба уже неактуальна.");
+  if (availability(uid, request, replacesId) === "busy") throw new Error("Это окно уже занято. Выбери другое время.");
+  if (availability(state.uid, request, replacesId) === "busy") throw new Error("В твоём расписании уже занято это время.");
   const exists = proposals().some((p) => p.fromUid === state.uid && p.toUid === uid && p.status === "pending" && p.date === data.date && overlaps(p, request));
   if (exists) throw new Error("Похожее приглашение уже ожидает ответа.");
-  await addDoc(collection(db, "proposals"), {
-    fromUid: state.uid, toUid: uid, fromName: state.nick, toName: member.nick,
-    date: data.date, start: data.start, end: data.end, game,
+  const proposalRef = doc(collection(db, "proposals"));
+  const preview = { fromUid: state.uid, toUid: uid, fromName: state.nick, toName: member.nick,
+    date: data.date, start: data.start, end: data.end, game };
+  const batch = writeBatch(db);
+  batch.set(proposalRef, { ...preview, replacesId,
     message: String(data.message || "").trim().slice(0, 500),
     status: "pending", createdAt: serverTimestamp(), respondedAt: null
   });
+  for (const ownerUid of [state.uid, uid]) {
+    batch.set(doc(db, "moderatorPending", ownerUid, "items", proposalRef.id), preview);
+  }
+  await batch.commit();
   modalClose();
   state.tab = "inbox";
   state.inboxFilter = "all";
   render();
-  flashMessage("Приглашение отправлено " + member.nick + ".");
+  flashMessage(replacesId ? "Предложение переноса отправлено. Старая коллаба останется в силе до согласия." : "Приглашение отправлено " + member.nick + ".");
 }
 async function respond(id, answer) {
   const p = proposals().find((entry) => entry.id === id);
@@ -364,29 +414,52 @@ async function respond(id, answer) {
   if (answer === "accepted" && (p.toUid !== state.uid || p.status !== "pending")) throw new Error("Принять приглашение может только получатель.");
   if (answer === "declined" && (p.toUid !== state.uid || p.status !== "pending")) throw new Error("Отклонить приглашение может только получатель.");
   if (answer === "cancelled" && p.status !== "pending" && p.status !== "accepted") throw new Error("Это предложение уже завершено.");
+  const oldLock = answer === "accepted" && p.replacesId ? state.locks.find((lock) => lock.id === p.replacesId) : null;
+  if (answer === "accepted" && p.replacesId && (!oldLock ||
+    ![oldLock.fromUid, oldLock.toUid].includes(p.fromUid) ||
+    ![oldLock.fromUid, oldLock.toUid].includes(p.toUid))) {
+    throw new Error("Исходная коллаба для переноса уже отменена или недоступна.");
+  }
   if (answer === "accepted") {
-    const mine = availability(state.uid, p);
-    const theirs = availability(p.fromUid, p);
-    if (mine === "busy" || theirs === "busy") throw new Error("В это время уже есть занятое окно. Освободи время или попроси другое приглашение.");
+    const mine = availability(state.uid, p, p.replacesId || "");
+    const theirs = availability(p.fromUid, p, p.replacesId || "");
+    if (mine === "busy" || theirs === "busy") throw new Error("На новом времени есть занятость. Выберите другое окно.");
   }
   const batch = writeBatch(db);
   batch.update(doc(db, "proposals", id), { status: answer, respondedAt: serverTimestamp() });
-  const lockRef = doc(db, "collabLocks", id);
-  const publicMarkers = [p.fromUid, p.toUid].map((uid) => doc(db, "publicCollabs", uid, "items", id));
+  const newLock = doc(db, "collabLocks", id);
+  const markers = (proposal) => [proposal.fromUid, proposal.toUid].map((uid) => doc(db, "publicCollabs", uid, "items", proposal.id));
+  if (p.status === "pending" && Object.prototype.hasOwnProperty.call(p, "replacesId")) {
+    for (const ownerUid of [p.fromUid, p.toUid]) {
+      batch.delete(doc(db, "moderatorPending", ownerUid, "items", p.id));
+    }
+  }
   if (answer === "accepted") {
-    batch.set(lockRef, {
+    batch.set(newLock, {
       fromUid: p.fromUid, toUid: p.toUid, fromName: p.fromName, toName: p.toName,
       date: p.date, start: p.start, end: p.end, game: p.game
     });
-    // Only the generic label and hours are publicly projected; no game or participant names.
-    const marker = { date: p.date, start: p.start, end: p.end, type: "collab" };
-    for (const ref of publicMarkers) batch.set(ref, marker);
+    const marker = { date: p.date, start: p.start, end: p.end, type: "collab", game: "", partner: "" };
+    for (const ref of markers(p)) batch.set(ref, marker);
+    if (oldLock) {
+      batch.update(doc(db, "proposals", oldLock.id), { status: "cancelled", respondedAt: serverTimestamp() });
+      batch.delete(doc(db, "collabLocks", oldLock.id));
+      // Legacy confirmed invitations may have no public markers.
+      const oldRefs = markers({ ...oldLock, id: oldLock.id });
+      const present = await Promise.all(oldRefs.map((ref) => getDoc(ref)));
+      for (let i = 0; i < oldRefs.length; i++) if (present[i].exists()) batch.delete(oldRefs[i]);
+    }
   } else if (p.status === "accepted") {
-    batch.delete(lockRef);
-    for (const ref of publicMarkers) batch.delete(ref);
+    batch.delete(newLock);
+    const refs = markers(p);
+    const present = await Promise.all(refs.map((ref) => getDoc(ref)));
+    for (let i = 0; i < refs.length; i++) if (present[i].exists()) batch.delete(refs[i]);
   }
   await batch.commit();
-  flashMessage(answer === "accepted" ? "Коллаб подтверждён и добавлен в оба календаря." : answer === "declined" ? "Приглашение отклонено." : "Коллаб отменён.");
+  const message = answer === "accepted"
+    ? (oldLock ? "Перенос подтверждён: старое время освобождено, новое сохранено." : "Коллаба подтверждена и добавлена в оба календаря.")
+    : answer === "declined" ? "Приглашение отклонено." : "Коллаба или приглашение отменены.";
+  flashMessage(message);
 }
 async function refreshOwn() {
   if (!state.authorized) return;
@@ -450,7 +523,7 @@ async function checkAccess(user) {
   if (!old.exists()) {
     await setDoc(memberRef, {
       nick: ((user.email || "Новая участница").split("@")[0].length >= 2 ? (user.email || "").split("@")[0] : "Новая участница").slice(0, 40),
-      twitch: "", steam: "", telegram: "", youtube: "", tiktok: "", discord: "", weekdays: "", weekend: "", updatedAt: serverTimestamp()
+      twitch: "", steam: "", telegram: "", telegramDM: "", youtube: "", tiktok: "", discord: "", weekdays: "", weekend: "", updatedAt: serverTimestamp()
     });
   }
   const fresh = await getDoc(memberRef);
@@ -480,7 +553,7 @@ async function boot() {
         dispose(); dispose = () => {};
         nav.hidden = true; $("logout").hidden = true;
         try {
-          dispose = await startModeratorView({ db, auth, uid: modMatch[1], screen, identity: $("identity"), user });
+          dispose = await startModeratorV3({ db, auth, uid: modMatch[1], screen, identity: $("identity"), user });
         } catch (error) {
           screen.innerHTML = '<div class="notice bad">Ошибка модераторского раздела: ' + h(readableError(error)) + '</div>';
         }
@@ -509,9 +582,9 @@ document.addEventListener("change", (event) => {
   if (select.value === "off") {
     form.elements.start.value = "00:00";
     form.elements.end.value = "00:00";
-    form.elements.public.checked = true;
+    form.elements.hidePublic.checked = false;
   } else if (select.value === "busy" || select.value === "maybe" || select.value === "free") {
-    form.elements.public.checked = false;
+    form.elements.hidePublic.checked = true;
   }
 });
 document.addEventListener("click", async (event) => {
@@ -548,6 +621,22 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "edit-event") { eventModal(target.dataset.id); return; }
+    if (action === "move-collab") {
+      const lock = state.locks.find((x) => x.id === target.dataset.id && [x.fromUid, x.toUid].includes(state.uid));
+      if (!lock) throw new Error("Коллаба уже недоступна.");
+      const otherUid = lock.fromUid === state.uid ? lock.toUid : lock.fromUid;
+      inviteModal(otherUid, lock.id);
+      return;
+    }
+    if (action === "cancel-collab") {
+      if (!confirm("Отменить подтверждённую коллабу у обоих участников?")) return;
+      if (state.busy) return;
+      state.busy = true;
+      try { await respond(target.dataset.id, "cancelled"); }
+      finally { state.busy = false; }
+      return;
+    }
+    if (action === "visibility-collab") { await collabVisibilityModal(target.dataset.id); return; }
     if (action === "invite") { inviteModal(target.dataset.uid); return; }
     if (action === "inbox-pending" || action === "inbox-all") {
       state.inboxFilter = action === "inbox-all" ? "all" : "pending"; render(); return;
@@ -599,6 +688,7 @@ document.addEventListener("submit", async (event) => {
       state.search = { date: data.date, start: data.start, end: data.end, game: String(data.game || "").trim().slice(0, 90) };
       render();
     } else if (state.authorized && type === "event") await saveEvent(form);
+    else if (state.authorized && type === "collab-visibility") await saveCollabVisibility(form);
     else if (state.authorized && type === "profile") await saveProfile(form);
     else if (state.authorized && type === "invite") await sendInvite(form);
   } catch (error) { flashMessage(readableError(error), true); console.error(error); }
