@@ -291,13 +291,12 @@ function wishTimeRow(index, date = state.date, start = "20:00", end = "23:00") {
 function wishModal() {
   const others = state.members.filter((member) => member.id !== state.uid).sort((a, b) => a.nick.localeCompare(b.nick, "ru"));
   const people = others.map((member) => {
-    const status = availability(member.id, { date: state.date, start: "20:00", end: "23:00" });
-    const text = status === "free" ? "Нет занятости в выбранный день" : "Есть отметки занятости — предложить можно на другое время";
+    const text = "Доступность каждого варианта проверится при отправке";
     const dm = safeUrl(member.telegramDM);
-    return '<label class="wish-person"><input type="checkbox" name="wishRecipient" value="' + h(member.id) + '">' +
+    return '<div class="wish-person-wrap"><label class="wish-person"><input type="checkbox" name="wishRecipient" value="' + h(member.id) + '">' +
       '<span class="wish-person-details"><strong>' + h(member.nick || "Участница") + '</strong>' +
       '<small>' + h(text) + '</small></span></label>' +
-      (dm ? '<a class="wish-contact" href="' + dm + '" target="_blank" rel="noopener noreferrer">ЛС ↗</a>' : "");
+      (dm ? '<a class="wish-contact" href="' + dm + '" target="_blank" rel="noopener noreferrer">ЛС ↗</a>' : "") + '</div>';
   }).join("");
   modalOpen('<h2 id="modalTitle">✦ Хочу коллабу</h2><p class="muted">Укажи игру и до пяти вариантов времени. Выбери участниц галочками — каждая получит одно приглашение и сама выберет подходящий вариант.</p>' +
     '<form data-form="wish"><div class="field"><label>Игра или идея *</label><input type="text" name="game" maxlength="90" placeholder="Например, The Forest" required></div>' +
@@ -865,4 +864,10 @@ $("logout").addEventListener("click", async () => {
   location.hash = "";
 });
 window.addEventListener("hashchange", () => location.reload());
+// Refresh visible Twitch status while the calendar tab is open.
+setInterval(() => {
+  if (state.authorized && state.tab === "calendar") {
+    refreshTwitch(state.members, () => renderCalendar());
+  }
+}, 120000);
 boot();
