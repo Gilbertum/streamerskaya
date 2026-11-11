@@ -12,7 +12,7 @@ service cloud.firestore {
     function goodDate(d) { return d is string && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
     function goodTime(t) { return t is string && t.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$'); }
     function goodWindow(d) {
-      return goodDate(d.date) && goodTime(d.start) && goodTime(d.end) && d.start != d.end;
+      return goodDate(d.date) && goodTime(d.start) && goodTime(d.end) && (d.start != d.end || (d.start == '00:00' && d.end == '00:00'));
     }
     function goodMember(d) {
       return d.keys().hasAll(['nick','twitch','steam','weekdays','weekend','updatedAt'])
