@@ -1,4 +1,5 @@
 import { firebaseConfig } from "./firebase-config.js";
+import { startPublicView, startModeratorView } from "./views.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, getDocs, collection, query, where, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
@@ -92,7 +93,7 @@ function profileLinks(member) {
   return links.join("");
 }
 function typeName(type) {
-  return ({ stream: "Стрим", busy: "Недоступна", maybe: "Под вопросом", free: "Свободна", collab: "Коллаб" })[type] || "Событие";
+  return ({ stream: "Стрим", off: "Выходной", busy: "Недоступна", maybe: "Под вопросом", free: "Свободна", collab: "Коллаб" })[type] || "Событие";
 }
 function proposals() {
   const map = new Map([...state.sent, ...state.received].map((p) => [p.id, p]));
@@ -238,14 +239,14 @@ function eventModal(id) {
   const option = (value, label) => '<option value="' + value + '"' + (source.type === value ? ' selected' : "") + '>' + label + '</option>';
   modalOpen('<h2 id="modalTitle">' + (item ? "Редактировать событие" : "Новое событие") + '</h2><p class="muted">Дату и часы вводим по Москве. Пустой день считается свободным.</p>' +
     '<form data-form="event" data-id="' + h(id || "") + '" class="form-grid"><div class="field full"><label>Тип отметки</label><select name="type">' +
-    option("stream", "Стрим / запланированная игра") + option("busy", "Не могу коллабиться") + option("maybe", "Под вопросом") + option("free", "Точно свободна") + '</select></div>' +
+    option("stream", "Стрим / запланированная игра") + option("off", "Выходной (можно показать зрителям)") + option("busy", "Не могу коллабиться") + option("maybe", "Под вопросом") + option("free", "Точно свободна") + '</select></div>' +
     '<div class="field full"><label>Игра / название стрима (для типа «Стрим»)</label><input name="title" maxlength="90" value="' + h(source.title || "") + '" placeholder="Far Far West"></div>' +
     '<div class="field"><label>Дата</label><input type="date" name="date" value="' + h(source.date) + '" required></div>' +
     '<div class="field"><label>Начало, МСК</label><input type="time" name="start" value="' + h(source.start) + '" required></div>' +
     '<div class="field"><label>Конец, МСК</label><input type="time" name="end" value="' + h(source.end) + '" required></div>' +
     '<div class="full"><button type="button" class="button button-ghost small" data-action="whole-day">Отметить весь день (00:00–00:00)</button></div>' +
     '<label class="check-line" style="align-self:end;padding-bottom:9px"><input name="public" type="checkbox" ' + (source.public ? "checked" : "") + '>Показать зрителям</label>' +
-    '<p class="tiny-note full">Публичная галочка действует только на тип «Стрим». Коллабы по приглашению остаются внутренними.</p>' +
+    '<p class="tiny-note full">Публичная галочка работает для типов «Стрим» и «Выходной». Подробности коллабов для зрителей скрыты.</p>' +
     '<div class="form-actions full">' + (item ? '<button type="button" class="button button-subtle" data-action="delete-event" data-id="' + h(id) + '">Удалить</button>' : "") +
     '<button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Сохранить</button></div></form>');
 }
@@ -267,25 +268,25 @@ async function publishPublicSchedule() {
   const cutoff = addDays(mskToday(), -30);
   const maxDate = addDays(mskToday(), 365);
   const events = own.docs.map((d) => d.data())
-    .filter((e) => e.type === "stream" && e.public === true && e.date >= cutoff && e.date <= maxDate)
+    .filter((e) => (e.type === "stream" || e.type === "off") && e.public === true && e.date >= cutoff && e.date <= maxDate)
     .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))
     .slice(0, 300)
-    .map((e) => ({ date: e.date, start: e.start, end: e.end, title: String(e.title || "").slice(0, 90) }));
+    .map((e) => ({ date: e.date, start: e.start, end: e.end, type: e.type, title: e.type === "off" ? "" : String(e.title || "").slice(0, 90) }));
   const memberSnap = await getDoc(doc(db, "members", state.uid));
   const m = memberSnap.data() || {};
   await setDoc(doc(db, "publicSchedules", state.uid), {
-    nick: m.nick || state.nick, twitch: m.twitch || "", events, updatedAt: serverTimestamp()
+    nick: m.nick || state.nick, twitch: m.twitch || "", telegram: m.telegram || "", youtube: m.youtube || "", tiktok: m.tiktok || "", discord: m.discord || "", events, updatedAt: serverTimestamp()
   });
 }
 async function saveEvent(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   if (!isDate(data.date) || !isTime(data.start) || !isTime(data.end) || (data.start === data.end && data.start !== "00:00")) throw new Error("Укажи корректные часы. Для полного дня используй 00:00–00:00.");
-  const validTypes = ["stream", "busy", "maybe", "free"];
+  const validTypes = ["stream", "off", "busy", "maybe", "free"];
   if (!validTypes.includes(data.type)) throw new Error("Неизвестный тип отметки.");
   const record = {
     ownerUid: state.uid, date: data.date, start: data.start, end: data.end,
     type: data.type, title: data.type === "stream" ? (data.title || "Стрим").trim().slice(0, 90) : "",
-    public: data.type === "stream" && data.public === "on",
+    public: ["stream", "off"].includes(data.type) && data.public === "on",
     updatedAt: serverTimestamp()
   };
   if (form.dataset.id) await updateDoc(doc(db, "slots", form.dataset.id), record);
@@ -301,10 +302,14 @@ async function saveProfile(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   const nick = String(data.nick || "").trim().slice(0, 40);
   if (nick.length < 2) throw new Error("Никнейм должен быть не короче двух символов.");
-  for (const key of ["twitch", "steam"]) if (data[key] && !safeUrl(data[key])) throw new Error("Для ссылок нужен полный адрес https://...");
+  for (const key of ["twitch", "steam", "telegram", "youtube", "tiktok", "discord"]) if (data[key] && !safeUrl(data[key])) throw new Error("Для ссылок нужен полный адрес https://...");
   const member = {
     nick, twitch: String(data.twitch || "").trim().slice(0, 300),
     steam: String(data.steam || "").trim().slice(0, 300),
+    telegram: String(data.telegram || "").trim().slice(0, 300),
+    youtube: String(data.youtube || "").trim().slice(0, 300),
+    tiktok: String(data.tiktok || "").trim().slice(0, 300),
+    discord: String(data.discord || "").trim().slice(0, 300),
     weekdays: String(data.weekdays || "").trim().slice(0, 80),
     weekend: String(data.weekend || "").trim().slice(0, 80),
     updatedAt: serverTimestamp()
@@ -449,7 +454,7 @@ async function checkAccess(user) {
   if (!old.exists()) {
     await setDoc(memberRef, {
       nick: ((user.email || "Новая участница").split("@")[0].length >= 2 ? (user.email || "").split("@")[0] : "Новая участница").slice(0, 40),
-      twitch: "", steam: "", weekdays: "", weekend: "", updatedAt: serverTimestamp()
+      twitch: "", steam: "", telegram: "", youtube: "", tiktok: "", discord: "", weekdays: "", weekend: "", updatedAt: serverTimestamp()
     });
   }
   const fresh = await getDoc(memberRef);
