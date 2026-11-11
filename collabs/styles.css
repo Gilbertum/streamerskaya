@@ -146,3 +146,7 @@
 @media(max-width:800px){.wish-time-row{grid-template-columns:65px minmax(110px,1fr) 90px 90px 29px;gap:5px;padding:8px}.wish-time-row .field input{font-size:11px;padding:7px 4px}}
 @media(max-width:610px){.day{min-height:68px}.calendar-day-label{font-size:8px;padding:2px 3px}.wish-time-row{grid-template-columns:1fr 1fr 1fr;gap:8px}.wish-time-row .wish-number{grid-column:1/-1}.wish-time-row>.button{position:absolute;right:25px;margin-top:-8px}.wish-time-row{position:relative}.wish-time-row .field{min-width:0}.wish-time-row .field input{font-size:12px}.wish-people{grid-template-columns:1fr}.twitch-person{flex-basis:205px}}
 @media(max-width:380px){.wish-time-row{grid-template-columns:1fr 1fr}.wish-time-row .field:first-of-type{grid-column:1/-1}.day-number{font-size:10px}}
+
+.wish-person-wrap{display:flex;flex-direction:column;gap:2px;min-width:0}
+.wish-person-wrap .wish-person{flex:1}
+.wish-person-wrap .wish-contact{align-self:flex-start;margin:0 0 0 12px}
