@@ -132,7 +132,8 @@ function availability(memberId, request, ignoreLockId = "") {
 }
 function countPending() {
   return state.received.filter(p=>p.status==="pending").length +
-    state.groupsInvited.filter(g=>g.status==="collecting"&&!Array.isArray(g.responses?.[state.uid])).length;
+    state.groupsInvited.filter(g=>g.status==="collecting"&&!Array.isArray(g.responses?.[state.uid])).length +
+    state.groupsOrganized.filter(g=>g.status==="collecting" && g.inviteeUids?.every(id=>Array.isArray(g.responses?.[id]))).length;
 }
 function render() {
   if (!state.authorized) return;
@@ -323,14 +324,14 @@ function wishModal() {
       '<small>' + h(text) + '</small></span></label>' +
       (dm ? '<a class="wish-contact" href="' + dm + '" target="_blank" rel="noopener noreferrer">ЛС ↗</a>' : "") + '</div>';
   }).join("");
-  modalOpen('<h2 id="modalTitle">✦ Хочу коллабу</h2><p class="muted">Укажи игру и до пяти вариантов времени. Выбери участниц галочками — каждая получит одно приглашение и сама выберет подходящий вариант.</p>' +
+  modalOpen('<h2 id="modalTitle">✦ Хочу коллабу</h2><p class="muted">Укажи игру и до пяти вариантов времени. Выбери участниц галочками — каждая отметит все подходящие варианты. Затем ты выберешь общий слот и подтвердишь его для всех.</p>' +
     '<form data-form="wish"><div class="field"><label>Игра или идея *</label><input type="text" name="game" maxlength="90" placeholder="Например, The Forest" required></div>' +
     '<div class="section-bar" style="margin:18px 0 9px"><h3>Варианты даты и времени</h3><button class="button button-ghost small" type="button" data-action="add-wish-row">+ Ещё вариант</button></div>' +
     '<div id="wishRows" class="wish-rows">' + wishTimeRow(0) + '</div>' +
     '<div class="section-bar" style="margin:22px 0 9px"><h3>Кого пригласить</h3><span class="tiny-note">До 10 участниц</span></div>' +
     (people ? '<div class="wish-people">' + people + '</div>' : '<div class="notice info">В комнате пока нет других участниц.</div>') +
     '<div class="field" style="margin-top:17px"><label>Сообщение (необязательно)</label><textarea name="message" maxlength="500" placeholder="Девочки, кто за совместный забег?"></textarea></div>' +
-    '<p class="tiny-note" style="margin:12px 0">Приглашения отправятся выбранным участницам после нажатия кнопки. Ожидающие ответы не блокируют время.</p>' +
+    '<p class="tiny-note" style="margin:12px 0">Участницы выберут несколько подходящих вариантов. Ты подтвердишь только общий вариант, подходящий всем. До подтверждения время не блокируется.</p>' +
     '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Отмена</button>' +
     '<button type="submit" class="button">Отправить приглашения</button></div></form>');
 }
