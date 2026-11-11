@@ -216,6 +216,7 @@ function renderInbox() {
     '</div>';
 }
 function publicLink(uid) { return location.origin + location.pathname + "#/s/" + encodeURIComponent(uid); }
+function moderatorLink(uid) { return location.origin + location.pathname + "#/mod/" + encodeURIComponent(uid); }
 function renderProfile() {
   const m = state.member || {};
   screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Твои настройки</p><h1>Профиль стримера</h1><p class="sub">Ник и ссылки видны другим участницам. Почта, пароль и личные отметки не отображаются в публичном расписании.</p></div></div>' +
@@ -223,6 +224,10 @@ function renderProfile() {
     '<div class="field full"><label for="nick">Никнейм *</label><input id="nick" name="nick" maxlength="40" required value="' + h(m.nick || state.nick) + '"></div>' +
     '<div class="field full"><label for="twitch">Ссылка на Twitch</label><input id="twitch" name="twitch" type="url" placeholder="https://www.twitch.tv/..." value="' + h(m.twitch || "") + '"></div>' +
     '<div class="field full"><label for="steam">Ссылка на Steam</label><input id="steam" name="steam" type="url" placeholder="https://steamcommunity.com/..." value="' + h(m.steam || "") + '"></div>' +
+    '<div class="field"><label for="telegram">Telegram</label><input id="telegram" name="telegram" type="url" placeholder="https://t.me/..." value="' + h(m.telegram || "") + '"></div>' +
+    '<div class="field"><label for="youtube">YouTube</label><input id="youtube" name="youtube" type="url" placeholder="https://www.youtube.com/..." value="' + h(m.youtube || "") + '"></div>' +
+    '<div class="field"><label for="tiktok">TikTok</label><input id="tiktok" name="tiktok" type="url" placeholder="https://www.tiktok.com/@..." value="' + h(m.tiktok || "") + '"></div>' +
+    '<div class="field"><label for="discord">Discord</label><input id="discord" name="discord" type="url" placeholder="https://discord.gg/..." value="' + h(m.discord || "") + '"></div>' +
     '<div class="field"><label for="weekdays">Обычно в будни (МСК)</label><input id="weekdays" name="weekdays" maxlength="80" placeholder="20:00–02:00" value="' + h(m.weekdays || "") + '"></div>' +
     '<div class="field"><label for="weekend">Обычно в выходные (МСК)</label><input id="weekend" name="weekend" maxlength="80" placeholder="15:00–00:00" value="' + h(m.weekend || "") + '"></div>' +
     '<div class="full"><p class="tiny-note">Обычное время — справочная подсказка. Фактическая занятость определяется отметками в календаре.</p></div>' +
@@ -230,7 +235,11 @@ function renderProfile() {
     '<section class="panel"><h2>Ссылка для зрителей</h2><p class="muted">Зрители смогут увидеть только события с отметкой «Показывать в публичном расписании».</p><div class="profile-link">' + h(publicLink(state.uid)) + '</div>' +
     '<div class="button-row"><button class="button" data-action="copy-public">Копировать ссылку</button><a class="button button-ghost" href="' + h(publicLink(state.uid)) + '" target="_blank" rel="noopener noreferrer">Посмотреть ↗</a></div>' +
     '<div class="notice info">Дни «недоступна» и «под вопросом», переписка и приглашения не попадут в ссылку для сообщества.</div>' +
-    '<h3>Доступ в комнату</h3><p class="tiny-note">Новых участниц добавляет владелица Firebase: создаёт учётную запись и разрешает UID в коллекции allowedUsers. Публичной регистрации здесь нет.</p>' +
+    '<h3 style="margin-top:26px">Ссылка для модераторов</h3><p class="muted">Месяц и детали подтверждённых коллабов. Доступ есть только у тех, кому разрешение выдано в Firebase.</p>' +
+    '<div class="profile-link">' + h(moderatorLink(state.uid)) + '</div>' +
+    '<div class="button-row"><button class="button button-ghost small" data-action="copy-moderator">Копировать ссылку для модератора</button></div>' +
+    '<p class="tiny-note">Создай в Firebase moderatorAccess / ' + h(state.uid) + ' / users / UID_МОДЕРАТОРА с полем enabled = true (boolean). Сама ссылка прав не даёт.</p>' +
+    '<h3 style="margin-top:26px">Доступ в комнату</h3><p class="tiny-note">Новых участниц добавляет владелица Firebase: создаёт учётную запись и разрешает UID в коллекции allowedUsers. Публичной регистрации здесь нет.</p>' +
     '<p class="tiny-note">Твой UID для настройки доступа: <code>' + h(state.uid) + '</code></p></section></div>';
 }
 function eventModal(id) {
@@ -254,6 +263,7 @@ function inviteModal(uid) {
   const member = person(uid);
   if (!member) return;
   modalOpen('<h2 id="modalTitle">Пригласить ' + h(member.nick) + '</h2><p class="muted">Отправь предложение. После принятия обе участницы увидят коллаб в календаре.</p>' +
+    '<div class="links" style="margin:12px 0 20px">' + profileLinks(member) + '</div>' +
     '<form data-form="invite" data-uid="' + h(uid) + '" class="form-grid">' +
     '<div class="field full"><label>Игра или формат</label><input name="game" maxlength="90" required value="' + h(state.search.game) + '"></div>' +
     '<div class="field"><label>Дата</label><input type="date" name="date" required value="' + h(state.search.date) + '"></div>' +
@@ -525,6 +535,11 @@ document.addEventListener("click", async (event) => {
     if (action === "invite") { inviteModal(target.dataset.uid); return; }
     if (action === "inbox-pending" || action === "inbox-all") {
       state.inboxFilter = action === "inbox-all" ? "all" : "pending"; render(); return;
+    }
+    if (action === "copy-moderator") {
+      try { await navigator.clipboard.writeText(moderatorLink(state.uid)); flashMessage("Ссылка для модератора скопирована."); }
+      catch { flashMessage("Скопируй модераторскую ссылку из профиля.", true); }
+      return;
     }
     if (action === "copy-public") {
       try { await navigator.clipboard.writeText(publicLink(state.uid)); flashMessage("Публичная ссылка скопирована."); }
