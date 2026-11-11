@@ -271,7 +271,11 @@ function renderInbox() {
     const inbound = p.toUid === state.uid;
     const someone = inbound ? nameOf(p.fromUid) : nameOf(p.toUid);
     const controls = [];
-    const duplicated = p.status === "pending" && duplicateConfirmedInvite(p,p,p.replacesId||"");
+    const alternatives = Array.isArray(p.timeOptions) && p.timeOptions.length ? p.timeOptions : [p];
+    const duplicated = p.status === "pending" &&
+      alternatives.every(slot => duplicateConfirmedInvite(p, slot, p.replacesId || ""));
+    const conflicting = p.status === "pending" && inbound && !duplicated && alternatives.length === 1
+      ? [conflictDescription(state.uid,p,p.replacesId || ""),conflictDescription(p.fromUid,p,p.replacesId || "")].filter(Boolean) : [];
     if (inbound && p.status === "pending") {
       if (duplicated) {
         controls.push('<button class="button button-ghost small" data-action="respond" data-answer="declined" data-id="' + h(p.id) + '">Убрать повтор</button>');
@@ -288,8 +292,10 @@ function renderInbox() {
         '</select></div>'
         : '<p class="tiny-note" style="margin:9px 0">Предложено ' + choices.length + ' вариантов. Получатель выберет подходящий.</p>')
       : "";
-    return '<article class="invite"><div class="invite-top"><div><div class="invite-title">' + (p.replacesId ? '↪ Перенос · ' : '') + h(p.game) + '</div><div class="invite-detail">' + (inbound ? 'От ' : 'Для ') + h(someone) + ' · ' + h(dateLabel(p.date)) + ' · ' + fmtTime(p) + '</div></div><span class="tag status-' + h(p.status) + '">' + h(statusNames[p.status] || p.status) + '</span></div>' +
+    return '<article class="invite"><div class="invite-top"><div><div class="invite-title">' + (p.replacesId ? '↪ Перенос · ' : '') + h(p.game) + '</div><div class="invite-detail">' + (inbound ? 'От ' : 'Для ') + h(someone) + ' · ' + h(dateLabel(p.date)) + ' · ' + fmtTime(p) + ' · № ' + h(p.id.slice(-6)) + '</div></div><span class="tag status-' + h(p.status) + '">' + h(statusNames[p.status] || p.status) + '</span></div>' +
       (duplicated ? '<div class="notice info">Повтор: такая коллаба с теми же участниками, игрой и временем уже подтверждена. Убрать повтор можно без отмены существующей коллабы.</div>' : "") +
+      (conflicting.length ? '<div class="notice bad">Внимание: '+h(conflicting.join("; "))+
+        '. Для этого приглашения нужно согласовать новое время, так как существующая бронь остаётся в силе.</div>' : "") +
       chooser +
       (p.message ? '<div class="invite-message">' + h(p.message) + '</div>' : "") +
       '<div class="button-row">' + controls.join("") + '</div></article>';
