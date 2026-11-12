@@ -1,0 +1,11 @@
+name = "xwaran-collab-telegram"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+[vars]
+FIREBASE_PROJECT_ID = "xwaran-collab-room"
+FIREBASE_API_KEY = "AIzaSyCgnmuT6iWBwfrTNm5T5YayysGFXL9HLVM"
+
+[triggers]
+crons = ["*/3 * * * *"]
