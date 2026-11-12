@@ -222,3 +222,13 @@
   .party-attendee{align-items:flex-start;flex-direction:column}
   .party-attendee .button-row{justify-content:flex-start}
 }
+
+
+/* v7 Twitch schedule preview: compact, readable on desktop and mobile */
+.tw-import-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:245px;overflow:auto;margin:13px 0;padding:2px}
+.tw-import-item{display:flex;flex-direction:column;gap:5px;background:#22232e;border:1px solid #404352;border-radius:10px;padding:10px}
+.tw-import-item strong{color:#ebddea;font-size:13px;overflow-wrap:anywhere}
+.tw-import-item small{color:#b7b5c5;font-size:11px}
+.modal-window:has(form[data-form="twitch-preview"]),
+.modal-window:has(form[data-form="twitch-commit"]){width:min(710px,100%)}
+@media(max-width:680px){.tw-import-list{grid-template-columns:1fr;max-height:260px}}
