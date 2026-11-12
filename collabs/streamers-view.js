@@ -21,10 +21,10 @@ function ownDiaryEvents(uid,slots,locks,diary,members,manualGuests=[]) {
   ];
 }
 function typeName(e){
-  return e.type==="stream"?"Стрим":e.type==="off"?"Выходной":e.type==="collab"?"Коллаба":e.type==="busy"?"Недоступна":e.type==="maybe"?"Под вопросом":"Свободна";
+  return e.type==="stream"?"Twitch":e.type==="boosty"?"Boosty":e.type==="off"?"Выходной":e.type==="collab"?"Коллаба":e.type==="busy"?"Недоступна":e.type==="maybe"?"Под вопросом":"Свободна";
 }
 function description(e){
-  if(e.type==="stream")return e.title||"Игра пока неизвестна";
+  if(["stream","boosty"].includes(e.type))return e.title||"Игра пока неизвестна";
   if(e.type==="collab")return e.kind==="slot" ? "Коллаба"+(e.title?": "+e.title:"") : (e.game||"Коллаба");
   return typeName(e);
 }

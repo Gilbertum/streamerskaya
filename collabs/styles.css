@@ -263,3 +263,29 @@ form[data-form="party-add"] .field{margin-top:14px}
 form[data-form="party-add"] textarea{width:100%;resize:vertical}
 form[data-form="telegram-channel"] .field{margin-bottom:10px}
 @media(max-width:640px){.party-checks{grid-template-columns:1fr}}
+
+
+/* Platform-aware stream and day-off palette, consistent in every calendar. */
+:root {
+  --calendar-twitch:#9146ff;
+  --calendar-boosty:#ff7136;
+  --calendar-off:#57be89;
+}
+.dot.stream {background:var(--calendar-twitch);}
+.dot.boosty {background:var(--calendar-boosty);}
+.dot.off {background:var(--calendar-off);}
+.calendar-day-label.stream {background:#4b2c75;color:#edddff;border:1px solid #8051c4;}
+.calendar-day-label.boosty {background:#63351d;color:#ffdec7;border:1px solid #b96a39;}
+.calendar-day-label.off {background:#234b37;color:#c9f5dd;border:1px solid #3c8a61;}
+.tag.stream {color:#e6d0ff;border-color:#8958cf;background:#392552;}
+.tag.boosty {color:#ffdbbf;border-color:#c7763d;background:#4a2e20;}
+.tag.off {color:#c8f0d8;border-color:#4f976b;background:#244232;}
+.mod-chip.stream,.streamer-month-day .mod-chip.stream {background:#4b2c75;color:#edddff;border:1px solid #8051c4;}
+.mod-chip.boosty,.streamer-month-day .mod-chip.boosty {background:#63351d;color:#ffdec7;border:1px solid #b96a39;}
+.mod-chip.off,.streamer-month-day .mod-chip.off {background:#234b37;color:#c9f5dd;border:1px solid #3c8a61;}
+.community-event.stream {background:#2e2244;border-color:#754bb0;}
+.community-event.stream strong {color:#ead8ff;}
+.community-event.boosty {background:#37281f;border-color:#a65d32;}
+.community-event.boosty strong {color:#ffdec7;}
+.community-event.off {background:#22362a;border-color:#4b9369;}
+.community-event.off strong {color:#c8f3db;}
