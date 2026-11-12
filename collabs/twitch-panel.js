@@ -67,7 +67,7 @@ export function startTwitchAuthorization(scopes = "", returnTab = "streamers") {
 }
 export function twitchPanelHtml(members) {
   const people = participants(members);
-  if (!people.length) return '<section class="panel twitch-panel"><div class="section-bar"><h3>Кто сейчас на Twitch</h3></div><p class="tiny-note">Панель появится, когда участницы добавят ссылки Twitch в профили.</p></section>';
+  if (!people.length) return '<section class="panel twitch-panel"><div class="section-bar"><h3>Кто сейчас на Twitch</h3></div><p class="tiny-note">Панель появится, когда участники добавят ссылки Twitch в профили.</p></section>';
   const enabled = twitchEnabled(), connected = hasTwitchToken();
   // Only live channels in the compact panel. The directory below lists everyone.
   const sorted = people.filter(p => items.get(p.login)?.online === true && connected && !errorText && Date.now()-refreshedAt<300000)
@@ -87,7 +87,7 @@ export function twitchPanelHtml(members) {
         : '<a class="button button-ghost small" target="_blank" rel="noopener noreferrer" href="https://www.twitch.tv/' + p.login + '">Открыть канал ↗</a>') +
       '</div>';
   }).join("");
-  const note = !enabled ? '<span class="tiny-note">Для автоматической проверки статуса владелице нужно подключить Twitch Client ID.</span>' :
+  const note = !enabled ? '<span class="tiny-note">Для автоматической проверки статуса администратору нужно подключить Twitch Client ID.</span>' :
     !connected ? '<span class="tiny-note">Подключи свой Twitch-аккаунт, чтобы увидеть настоящие аватарки и статус онлайн.</span>' :
     errorText ? '<span class="tiny-note">' + enc(errorText) + '</span>' :
     refreshedAt ? '<span class="tiny-note">Данные Twitch обновляются примерно раз в 2 минуты, когда открыт календарь.</span>' :
@@ -95,9 +95,9 @@ export function twitchPanelHtml(members) {
   const connect = enabled && !connected ? '<button class="button button-ghost small" data-action="connect-twitch" type="button">Подключить Twitch</button>' : '';
   const refresh = enabled && connected ? '<button class="button button-ghost small" data-action="refresh-twitch" type="button">↻ Проверить</button>' : '';
   return '<section class="panel twitch-panel"><div class="section-bar"><div><h3>Кто сейчас на Twitch</h3>' +
-    '<p class="tiny-note" style="margin:0">Участницы Collab Room с заполненным Twitch-профилем</p></div><div class="button-row">' +
+    '<p class="tiny-note" style="margin:0">Участники Collab Room с заполненным Twitch-профилем</p></div><div class="button-row">' +
     connect + refresh + '</div></div><div class="twitch-people">' +
-    (channels || '<div class="twitch-empty"><strong>Пока никто не стримит</strong><span>Когда кто-то из участниц запустит трансляцию, она появится здесь автоматически.</span></div>') +
+    (channels || '<div class="twitch-empty"><strong>Пока никто не стримит</strong><span>Когда кто-то из участников запустит трансляцию, она появится здесь автоматически.</span></div>') +
     '</div><div class="twitch-help">' + note + '</div></section>';
 }
 export async function refreshTwitch(members, onUpdate, force = false) {
