@@ -41,7 +41,9 @@ if (error) {
   sessionStorage.setItem("collab-room-twitch-session-v1", JSON.stringify({
     token: accessToken, clientId: twitchClientId, expiresAt: Date.now() + Math.min(lifetime, 86400 * 60) * 1000
   }));
-  message.textContent = "Twitch подключён. Возвращаемся в раздел «Стримеры».";
-  location.replace("./#/streamers");
+  const returnTab=sessionStorage.getItem("collab-room-twitch-return-v1")==="calendar"?"calendar":"streamers";
+  sessionStorage.removeItem("collab-room-twitch-return-v1");
+  message.textContent = "Twitch подключён. Возвращаемся в Collab Room.";
+  location.replace("./#/"+returnTab);
 }
 </script></body></html>
