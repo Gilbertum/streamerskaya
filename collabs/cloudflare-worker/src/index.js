@@ -104,7 +104,7 @@ async function start(env,msg){
     remove(env,path)
   ],transaction);
   await telegram(env,"sendMessage",{chat_id:msg.chat.id,
-    text:"✅ Telegram подключён к Collab Room. Ожидай приглашения от участниц."});
+    text:"✅ Telegram подключён к Collab Room. Ожидай приглашения от участников."});
 }
 async function accountFor(env,uid,telegramId,chatId){
   if(!validId(uid)||!await allowed(env,uid))return null;
