@@ -12,10 +12,10 @@ const socials = (person) => [
   ["twitch","Twitch"],["telegram","Telegram"],["youtube","YouTube"],
   ["tiktok","TikTok"],["discord","Discord"],["steam","Steam"],["telegramDM","Написать в личный Telegram"]
 ].map(([key,label])=>{const url=link(person[key]);return url?'<a class="button button-ghost small" href="'+url+'" target="_blank" rel="noopener noreferrer">'+label+' ↗</a>':"";}).join("");
-function ownDiaryEvents(uid,slots,locks,diary,members) {
+function ownDiaryEvents(uid,slots,locks,diary,members,manualGuests=[]) {
   return [
     ...slots.filter(e=>e.ownerUid===uid).map(e=>({...e,kind:"slot"})),
-    ...collabParties(locks,id=>members.find(m=>m.id===id)?.nick||"")
+    ...collabParties(locks,id=>members.find(m=>m.id===id)?.nick||"",manualGuests)
       .filter(e=>e.participantUids.includes(uid)).map(e=>({...e,type:"collab",kind:"party"})),
     ...diary.filter(e=>e.status==="confirmed"&&e.participantsUids?.includes(uid)).map(e=>({...e,type:"collab",kind:"group"}))
   ];
@@ -28,7 +28,7 @@ function description(e){
   if(e.type==="collab")return e.game||"Коллаба";
   return typeName(e);
 }
-export function streamersHtml({members,slots,locks,diary,selectedUid,month,me}){
+export function streamersHtml({members,slots,locks,diary,selectedUid,month,me,manualGuests=[]}){
   const people=[...members];
   if(!selectedUid){
     const list=people.sort((a,b)=>a.nick.localeCompare(b.nick,"ru")).map(p=>{
@@ -47,7 +47,7 @@ export function streamersHtml({members,slots,locks,diary,selectedUid,month,me}){
   }
   const person=members.find(m=>m.id===selectedUid);
   if(!person)return '<div class="empty">Участница не найдена. <button class="button button-ghost" data-action="streamers-back">Назад</button></div>';
-  const events=ownDiaryEvents(selectedUid,slots,locks,diary,members);
+  const events=ownDiaryEvents(selectedUid,slots,locks,diary,members,manualGuests);
   const [year,mo]=month.split("-").map(Number);
   const first=(new Date(Date.UTC(year,mo-1,1)).getUTCDay()+6)%7;
   const start=day(month+"-01",-first);
@@ -73,9 +73,9 @@ export function streamersHtml({members,slots,locks,diary,selectedUid,month,me}){
       '<div class="calendar-week">'+["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map(w=>'<span>'+w+'</span>').join("")+'</div>'+
       '<div class="mod-month-grid">'+cells+'</div></section>';
 }
-export function streamerDayHtml({uid,date,slots,locks,diary,members}){
+export function streamerDayHtml({uid,date,slots,locks,diary,members,manualGuests=[]}){
   const person=members.find(m=>m.id===uid);
-  const all=ownDiaryEvents(uid,slots,locks,diary,members).filter(e=>e.date===date).sort((a,b)=>a.start.localeCompare(b.start));
+  const all=ownDiaryEvents(uid,slots,locks,diary,members,manualGuests).filter(e=>e.date===date).sort((a,b)=>a.start.localeCompare(b.start));
   const rows=all.map(e=>{
     const others=e.kind==="party"?e.participants.join(", ") :
       e.kind==="group"?(e.participants||[]).join(", "):"";
