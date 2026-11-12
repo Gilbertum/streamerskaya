@@ -6,6 +6,7 @@ const {onCall,onRequest,HttpsError}=require("firebase-functions/v2/https");
 const {onDocumentCreated}=require("firebase-functions/v2/firestore");
 const {defineSecret}=require("firebase-functions/params");
 const {overlaps,conflict,siteLink,scheduleText,inviteText}=require("./telegram-logic");
+const ROOM_URL="https://gilbertum.github.io/streamerskaya/collabs/";
 initializeApp();
 const db=getFirestore();
 const BOT=defineSecret("TELEGRAM_BOT_TOKEN");
@@ -122,7 +123,7 @@ async function respondProposal(id,uid,action){
     if(p.toUid!==uid)return "Приглашение адресовано другому участнику";
     if(p.status!=="pending")return "Приглашение уже обработано";
     if(action==="a" && ((p.timeOptions||[]).length>1||p.replacesId))
-      return "В этой заявке требуется выбрать время или согласовать перенос на сайте: "+siteLink(uid);
+      return "В этой заявке требуется выбрать время или согласовать перенос на сайте (вкладка Приглашения): "+ROOM_URL;
     if(action==="a"){
       const [slotDocs,lockDocs,groups]=await Promise.all([
         tx.get(db.collection("slots").where("ownerUid","in",[p.fromUid,p.toUid])),
@@ -157,7 +158,7 @@ async function respondGroup(id,uid,action){
     if(!g.inviteeUids?.includes(uid))return "Нет доступа";
     if(g.status!=="collecting")return "Согласование уже завершено";
     if(action==="a" && g.options.length!==1)
-      return "В заявке несколько вариантов: выбери подходящие даты в Collab Room: "+siteLink(uid);
+      return "В заявке несколько вариантов: выбери подходящие даты в Collab Room (вкладка Приглашения): "+ROOM_URL;
     tx.update(ref,{["responses."+uid]:action==="a"?[0]:[],
       updatedAt:FieldValue.serverTimestamp()});
     return action==="a"?"✅ Ответ отправлен. Организатор выберет окончательное время.":
@@ -165,13 +166,15 @@ async function respondGroup(id,uid,action){
   });
 }
 async function sendScheduleToUser(uid,chatId,date){
-  const [slots,locks]=await Promise.all([
+  const [slots,locks,groups]=await Promise.all([
     db.collection("slots").where("ownerUid","==",uid).get(),
-    db.collection("collabLocks").get()
+    db.collection("collabLocks").get(),
+    db.collection("groupCalendar").get()
   ]);
   const items=[
     ...slots.docs.map(x=>x.data()).filter(x=>x.date===date),
-    ...locks.docs.map(x=>x.data()).filter(x=>x.date===date && [x.fromUid,x.toUid].includes(uid))
+    ...locks.docs.map(x=>x.data()).filter(x=>x.date===date && [x.fromUid,x.toUid].includes(uid)),
+    ...groups.docs.map(x=>x.data()).filter(x=>x.date===date && x.participantsUids?.includes(uid))
   ].slice(0,15);
   const text=items.length?items.map(x=>"• "+(x.game||x.title||x.type||"Событие")+
     " · "+(x.start||"")+"–"+(x.end||"")).join("\n"):"На этот день записей пока нет.";
