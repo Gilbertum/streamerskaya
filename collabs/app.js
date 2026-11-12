@@ -1,6 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { twitchPanelHtml, refreshTwitch, startTwitchAuthorization } from "./twitch-panel.js";
 import { streamersHtml, streamerDayHtml } from "./streamers-view.js";
+import { collabParties, canJoinExistingSession, partyForLock, sameCollabSession } from "./collab-parties.js";
 import { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, finalizeGroupWish, cancelGroupWish } from "./group-wishes.js";
 import { startPublicView } from "./views.js";
 import { startModeratorV3 } from "./moderator-v3.js";
@@ -107,15 +108,16 @@ function proposals() {
   return [...map.values()].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 }
 function myItems(date) {
-  const slots = state.slots.filter((item) => item.ownerUid === state.uid && item.date === date)
-    .map((item) => ({ ...item, kind: "slot" }));
-  const locks = state.locks.filter((item) => (item.fromUid === state.uid || item.toUid === state.uid) && item.date === date)
-    .map((item) => ({ ...item, id: item.id, type: "collab", kind: "lock" }));
-  const groups = state.groupCalendar.filter(item => item.participantsUids?.includes(state.uid) && item.date === date)
-    .map(item => ({ ...item, id: item.id, type: "collab", kind: "group" }));
-  return [...slots, ...locks, ...groups].sort((a,b)=>a.start.localeCompare(b.start));
+  const slots = state.slots.filter(item => item.ownerUid === state.uid && item.date === date)
+    .map(item => ({...item,kind:"slot"}));
+  const parties = collabParties(state.locks,nameOf)
+    .filter(p => p.participantUids.includes(state.uid) && p.date === date)
+    .map(p => ({...p,kind:p.locks.length>1?"party":"lock"}));
+  const groups = state.groupCalendar.filter(item=>item.participantsUids?.includes(state.uid)&&item.date===date)
+    .map(item=>({...item,type:"collab",kind:"group"}));
+  return [...slots,...parties,...groups].sort((a,b)=>a.start.localeCompare(b.start));
 }
-function availability(memberId, request, ignoreLockId = "") {
+function availability(memberId, request, ignoreLockId = "", joining = null) {
   const problems = [];
   for (const item of state.slots) {
     if (item.ownerUid !== memberId || item.type === "free") continue;
@@ -123,6 +125,7 @@ function availability(memberId, request, ignoreLockId = "") {
   }
   for (const item of state.locks) {
     if (item.id === ignoreLockId || (item.fromUid !== memberId && item.toUid !== memberId)) continue;
+    if (memberId === joining?.organizerUid && canJoinExistingSession(item, joining.organizerUid, {...request,game:joining.game})) continue;
     if (overlaps(item, request)) problems.push("busy");
   }
   if (state.groupCalendar.some(g => g.participantsUids?.includes(memberId) && overlaps(g,request))) problems.push("busy");
@@ -131,7 +134,7 @@ function availability(memberId, request, ignoreLockId = "") {
   return "free"; // Если ничего не отмечено, можно предложить коллаб.
 }
 
-function bookingConflicts(memberId, request, ignoreLockId = "") {
+function bookingConflicts(memberId, request, ignoreLockId = "", joining = null) {
   const blockers=[];
   for (const item of state.slots) {
     if (item.ownerUid !== memberId || item.type === "free" || item.type === "maybe" || !overlaps(item,request)) continue;
@@ -141,6 +144,7 @@ function bookingConflicts(memberId, request, ignoreLockId = "") {
   }
   for (const lock of state.locks) {
     if (lock.id === ignoreLockId || (lock.fromUid !== memberId && lock.toUid !== memberId) || !overlaps(lock,request)) continue;
+    if (memberId === joining?.organizerUid && canJoinExistingSession(lock,joining.organizerUid,{...request,game:joining.game})) continue;
     blockers.push({date:lock.date,start:lock.start,end:lock.end,
       label:"Коллаба: "+(lock.game||"Без игры")+" с "+nameOf(lock.fromUid===memberId?lock.toUid:lock.fromUid)});
   }
@@ -158,8 +162,8 @@ function duplicateConfirmedInvite(p, request, ignoreLockId = "") {
     lock.date===request.date && lock.start===request.start && lock.end===request.end &&
     String(lock.game||"").trim().toLowerCase()===String(p.game||"").trim().toLowerCase());
 }
-function conflictDescription(ownerUid,request,ignoreLockId="") {
-  const conflict=bookingConflicts(ownerUid,request,ignoreLockId)[0];
+function conflictDescription(ownerUid,request,ignoreLockId="",joining=null) {
+  const conflict=bookingConflicts(ownerUid,request,ignoreLockId,joining)[0];
   if(!conflict)return "";
   return (ownerUid===state.uid?"У тебя":"У "+nameOf(ownerUid))+
     " уже запланировано «"+conflict.label+"» "+dateLabel(conflict.date)+", "+fmtTime(conflict)+" МСК";
@@ -206,19 +210,22 @@ function renderCalendar() {
       '</span></button>';
   }
   const events = myItems(state.date).map((item) => {
-    const isLock = item.kind === "lock", isGroup = item.kind === "group";
-    const title = isLock || isGroup ? ((isGroup ? "Групповая коллаба: " : "Коллаб: ") + (item.game||"Без названия"))
+    const isLock = item.kind === "lock", isParty = item.kind === "party", isGroup = item.kind === "group";
+    const title = isLock || isParty || isGroup ? ((isGroup ? "Групповая коллаба: " : "Коллаба: ") + (item.game||"Без названия"))
       : (item.type === "stream" ? (item.title || "Без названия") : typeName(item.type));
     const other = isGroup ? " · " + (item.participants||[]).join(", ") :
+      isParty ? " · состав: " + item.participants.join(", ") :
       isLock ? (' · с ' + nameOf(item.fromUid === state.uid ? item.toUid : item.fromUid)) : "";
-    const controls = isGroup
+    const controls = isParty
+      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="party-details" data-id="' + h(item.id) + '">Участники и управление</button></div>'
+      : isGroup
       ? '<div class="event-actions"><button class="button button-subtle tiny" data-action="group-cancel" data-id="' + h(item.id) + '">Отменить для всех</button></div>'
       : isLock
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="visibility-collab" data-id="' + h(item.id) + '">Зрителям</button><button class="button button-ghost tiny" data-action="move-collab" data-id="' + h(item.id) + '">Перенести</button><button class="button button-subtle tiny" data-action="cancel-collab" data-id="' + h(item.id) + '">Отменить</button></div>'
       : '<div class="event-actions"><button class="button button-ghost tiny" data-action="edit-event" data-id="' + h(item.id) + '">Изменить</button><button class="button button-subtle tiny" data-action="delete-event" data-id="' + h(item.id) + '">Удалить</button></div>';
     return '<div class="event"><div><div class="event-title">' + h(title) + '</div><div class="event-when">' + fmtTime(item) + h(other) + '</div>' +
       '<div style="margin-top:7px"><span class="tag ' + h(item.type) + '">' + typeName(item.type) + '</span>' +
-      (!isLock && !isGroup && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
+      (!isLock && !isParty && !isGroup && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
   }).join("");
   screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и выходные, а через «Хочу коллабу» отправляй одной заявкой несколько вариантов времени выбранным участницам.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
     '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
@@ -271,11 +278,15 @@ function renderInbox() {
     const inbound = p.toUid === state.uid;
     const someone = inbound ? nameOf(p.fromUid) : nameOf(p.toUid);
     const controls = [];
+    const session = collabParties(state.locks,nameOf).find(party => sameCollabSession(party,p));
+    const teamInfo = session
+      ? '<div class="party-invite-roster"><strong>' + (p.status === "pending" ? "Уже подтвердили: " : "Состав коллабы: ") +
+        '</strong>' + h(session.participants.join(", ")) + '</div>' : "";
     const alternatives = Array.isArray(p.timeOptions) && p.timeOptions.length ? p.timeOptions : [p];
     const duplicated = p.status === "pending" &&
       alternatives.every(slot => duplicateConfirmedInvite(p, slot, p.replacesId || ""));
     const conflicting = p.status === "pending" && inbound && !duplicated && alternatives.length === 1
-      ? [conflictDescription(state.uid,p,p.replacesId || ""),conflictDescription(p.fromUid,p,p.replacesId || "")].filter(Boolean) : [];
+      ? [conflictDescription(state.uid,p,p.replacesId || ""),conflictDescription(p.fromUid,p,p.replacesId || "",{organizerUid:p.fromUid,game:p.game})].filter(Boolean) : [];
     if (inbound && p.status === "pending") {
       if (duplicated) {
         controls.push('<button class="button button-ghost small" data-action="respond" data-answer="declined" data-id="' + h(p.id) + '">Убрать повтор</button>');
@@ -293,6 +304,7 @@ function renderInbox() {
         : '<p class="tiny-note" style="margin:9px 0">Предложено ' + choices.length + ' вариантов. Получатель выберет подходящий.</p>')
       : "";
     return '<article class="invite"><div class="invite-top"><div><div class="invite-title">' + (p.replacesId ? '↪ Перенос · ' : '') + h(p.game) + '</div><div class="invite-detail">' + (inbound ? 'От ' : 'Для ') + h(someone) + ' · ' + h(dateLabel(p.date)) + ' · ' + fmtTime(p) + ' · № ' + h(p.id.slice(-6)) + '</div></div><span class="tag status-' + h(p.status) + '">' + h(statusNames[p.status] || p.status) + '</span></div>' +
+      teamInfo +
       (duplicated ? '<div class="notice info">Повтор: такая коллаба с теми же участниками, игрой и временем уже подтверждена. Убрать повтор можно без отмены существующей коллабы.</div>' : "") +
       (conflicting.length ? '<div class="notice bad">Внимание: '+h(conflicting.join("; "))+
         '. Для этого приглашения нужно согласовать новое время, так как существующая бронь остаётся в силе.</div>' : "") +
@@ -424,6 +436,39 @@ async function publishPublicSchedule() {
     nick: m.nick || state.nick, twitch: m.twitch || "", telegram: m.telegram || "", youtube: m.youtube || "", tiktok: m.tiktok || "", discord: m.discord || "", events, updatedAt: serverTimestamp()
   });
 }
+function collabPartyModal(lockId) {
+  const party = partyForLock(state.locks, lockId, nameOf);
+  if (!party || !party.participantUids.includes(state.uid)) {
+    throw new Error("Коллаба уже отменена или недоступна.");
+  }
+  const head = '<h2 id="modalTitle">Участники коллабы</h2>' +
+    '<p class="sub">' + h(party.game || "Игра не указана") + ' · ' +
+    h(dateLabel(party.date)) + ' · ' + fmtTime(party) + ' МСК</p>' +
+    '<div class="notice ok">Подтвердили участие: ' + party.participants.length +
+    ' — ' + h(party.participants.join(", ")) + '</div>';
+  const attendeeRows = party.locks.map(lock => {
+    const guest = nameOf(lock.toUid);
+    const canManage = state.uid === lock.fromUid || state.uid === lock.toUid;
+    return '<div class="party-attendee"><div><strong>' + h(guest) + '</strong>' +
+      '<p class="tiny-note">✓ Участие подтверждено</p></div>' +
+      (canManage ? '<div class="button-row">' +
+      '<button class="button button-ghost tiny" data-action="visibility-collab" data-id="' + h(lock.id) + '">Зрителям</button>' +
+      '<button class="button button-ghost tiny" data-action="move-collab" data-id="' + h(lock.id) + '">Перенести</button>' +
+      '<button class="button button-subtle tiny" data-action="cancel-collab" data-id="' + h(lock.id) + '">' +
+        (state.uid === lock.toUid ? "Отменить своё участие" : "Исключить участника") + '</button></div>' : "") +
+      '</div>';
+  }).join("");
+  const pending = state.uid === party.fromUid ? proposals().filter(p =>
+    p.fromUid === party.fromUid && p.status === "pending" &&
+    p.date === party.date && p.start === party.start && p.end === party.end &&
+    String(p.game || "").trim().toLowerCase() === String(party.game || "").trim().toLowerCase()
+  ).map(p=>nameOf(p.toUid)) : [];
+  modalOpen(head + '<div class="party-attendees">' + attendeeRows + '</div>' +
+    (pending.length ? '<p class="tiny-note" style="margin-top:15px">Ещё ожидают ответа: ' +
+      h([...new Set(pending)].join(", ")) + '</p>' : "") +
+    '<p class="tiny-note">Управление отдельным участником не отменяет участие остальных. Состав обновляется после новых подтверждений.</p>' +
+    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button></div>');
+}
 async function collabVisibilityModal(id) {
   const lock = state.locks.find((x) => x.id === id && [x.fromUid, x.toUid].includes(state.uid));
   if (!lock) throw new Error("Коллаба не найдена.");
@@ -515,7 +560,7 @@ async function sendInvite(form) {
   if (duplicateConfirmedInvite({fromUid:state.uid,toUid:uid,game},request,replacesId)) {
     throw new Error("Такая коллаба с "+member.nick+" уже подтверждена. Повторное приглашение не требуется.");
   }
-  const senderConflict=conflictDescription(state.uid,request,replacesId);
+  const senderConflict=conflictDescription(state.uid,request,replacesId,{organizerUid:state.uid,game});
   const recipientConflict=conflictDescription(uid,request,replacesId);
   if(senderConflict||recipientConflict)throw new Error("Время занято: "+
     [senderConflict,recipientConflict].filter(Boolean).join("; ")+". Выбери другое время.");
@@ -567,7 +612,7 @@ async function respond(id, answer, optionIndex = 0) {
         nameOf(p.toUid)+" на "+dateLabel(selected.date)+", "+fmtTime(selected)+
         " МСК. Повторное приглашение можно отклонить без отмены подтверждённого.");
     const mine=conflictDescription(state.uid,selected,p.replacesId||"");
-    const theirs=conflictDescription(p.fromUid,selected,p.replacesId||"");
+    const theirs=conflictDescription(p.fromUid,selected,p.replacesId||"",{organizerUid:p.fromUid,game:p.game});
     if(mine||theirs)throw new Error("Не удалось принять приглашение: "+
       [mine,theirs].filter(Boolean).join("; ")+
       ". Существующие события не изменены. Согласуй другое время с организатором.");
@@ -608,7 +653,7 @@ async function respond(id, answer, optionIndex = 0) {
   }
   await batch.commit();
   const message = answer === "accepted"
-    ? (oldLock ? "Перенос подтверждён: старое время освобождено, новое сохранено." : "Коллаба подтверждена и добавлена в оба календаря.")
+    ? (oldLock ? "Перенос подтверждён: старое время освобождено, новое сохранено." : "Коллаба подтверждена. Общий состав участников обновится автоматически.")
     : answer === "declined" ? "Приглашение отклонено." : "Коллаба или приглашение отменены.";
   flashMessage(message);
 }
@@ -875,6 +920,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "edit-event") { eventModal(target.dataset.id); return; }
+    if (action === "party-details") { collabPartyModal(target.dataset.id); return; }
     if (action === "move-collab") {
       const lock = state.locks.find((x) => x.id === target.dataset.id && [x.fromUid, x.toUid].includes(state.uid));
       if (!lock) throw new Error("Коллаба уже недоступна.");
@@ -883,10 +929,14 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "cancel-collab") {
-      if (!confirm("Отменить подтверждённую коллабу у обоих участников?")) return;
+      const party = partyForLock(state.locks,target.dataset.id,nameOf);
+      const message = party?.locks.length > 1
+        ? "Отменить участие этого стримера? Остальные останутся в общей коллабе."
+        : "Отменить подтверждённую коллабу у обоих участников?";
+      if (!confirm(message)) return;
       if (state.busy) return;
       state.busy = true;
-      try { await respond(target.dataset.id, "cancelled"); }
+      try { await respond(target.dataset.id, "cancelled"); modalClose(); }
       finally { state.busy = false; }
       return;
     }

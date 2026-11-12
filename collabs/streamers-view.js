@@ -1,4 +1,5 @@
 import { twitchPanelHtml, twitchLogin, twitchProfile } from "./twitch-panel.js";
+import { collabParties } from "./collab-parties.js";
 const h = (value) => String(value ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c]);
 const link = (value) => { try { const u = new URL(String(value || "")); return u.protocol === "https:" ? h(u.href) : ""; } catch { return ""; } };
@@ -9,10 +10,11 @@ const socials = (person) => [
   ["twitch","Twitch"],["telegram","Telegram"],["youtube","YouTube"],
   ["tiktok","TikTok"],["discord","Discord"],["steam","Steam"],["telegramDM","Написать в личный Telegram"]
 ].map(([key,label])=>{const url=link(person[key]);return url?'<a class="button button-ghost small" href="'+url+'" target="_blank" rel="noopener noreferrer">'+label+' ↗</a>':"";}).join("");
-function ownDiaryEvents(uid,slots,locks,diary) {
+function ownDiaryEvents(uid,slots,locks,diary,members) {
   return [
     ...slots.filter(e=>e.ownerUid===uid).map(e=>({...e,kind:"slot"})),
-    ...locks.filter(e=>e.fromUid===uid||e.toUid===uid).map(e=>({...e,type:"collab",kind:"lock"})),
+    ...collabParties(locks,id=>members.find(m=>m.id===id)?.nick||"")
+      .filter(e=>e.participantUids.includes(uid)).map(e=>({...e,type:"collab",kind:"party"})),
     ...diary.filter(e=>e.status==="confirmed"&&e.participantsUids?.includes(uid)).map(e=>({...e,type:"collab",kind:"group"}))
   ];
 }
@@ -43,7 +45,7 @@ export function streamersHtml({members,slots,locks,diary,selectedUid,month,me}){
   }
   const person=members.find(m=>m.id===selectedUid);
   if(!person)return '<div class="empty">Участница не найдена. <button class="button button-ghost" data-action="streamers-back">Назад</button></div>';
-  const events=ownDiaryEvents(selectedUid,slots,locks,diary);
+  const events=ownDiaryEvents(selectedUid,slots,locks,diary,members);
   const [year,mo]=month.split("-").map(Number);
   const first=(new Date(Date.UTC(year,mo-1,1)).getUTCDay()+6)%7;
   const start=day(month+"-01",-first);
@@ -71,12 +73,12 @@ export function streamersHtml({members,slots,locks,diary,selectedUid,month,me}){
 }
 export function streamerDayHtml({uid,date,slots,locks,diary,members}){
   const person=members.find(m=>m.id===uid);
-  const all=ownDiaryEvents(uid,slots,locks,diary).filter(e=>e.date===date).sort((a,b)=>a.start.localeCompare(b.start));
+  const all=ownDiaryEvents(uid,slots,locks,diary,members).filter(e=>e.date===date).sort((a,b)=>a.start.localeCompare(b.start));
   const rows=all.map(e=>{
-    const others=e.kind==="lock"?[e.fromUid,e.toUid].filter(x=>x!==uid).map(x=>members.find(m=>m.id===x)?.nick||"Стример").join(", "):
-      e.kind==="group"?(e.participants||[]).filter(x=>x!==(person?.nick||"")).join(", "):"";
+    const others=e.kind==="party"?e.participants.join(", ") :
+      e.kind==="group"?(e.participants||[]).join(", "):"";
     return '<div class="mod-detail-full"><span class="tag '+h(e.type)+'">'+typeName(e)+'</span>'+
-      '<h3>'+h(description(e))+'</h3><p class="tiny-note">'+time(e)+' МСК'+(others?' · с '+h(others):"")+'</p>'+
+      '<h3>'+h(description(e))+'</h3><p class="tiny-note">'+time(e)+' МСК'+(others?' · состав: '+h(others):"")+'</p>'+
       (e.kind==="slot"&&e.details?'<p style="white-space:pre-wrap">'+h(e.details)+'</p>':"")+'</div>';
   }).join("");
   return '<h2 id="modalTitle">'+h(person?.nick||"Стример")+' · '+h(dt(date,{weekday:"long",day:"numeric",month:"long"}))+'</h2>'+

@@ -206,3 +206,19 @@
 .community-event.collab strong {color:#ffe7a6;}
 .community-event.collab small {color:#e0c88e;}
 .event:has(.tag.collab) .event-title {color:#ffe1a0;}
+
+
+/* v6 — one shared collab with a live roster, with per-attendee controls */
+.party-attendees{display:flex;flex-direction:column;gap:9px;margin:15px 0}
+.party-attendee{display:flex;justify-content:space-between;align-items:center;gap:13px;
+  background:#191c26;border:1px solid #494555;border-radius:12px;padding:12px}
+.party-attendee strong{font-size:14px;color:#f5e9e8}
+.party-attendee .tiny-note{margin:3px 0 0;color:#9fd8b2}
+.party-attendee .button-row{justify-content:flex-end}
+.party-invite-roster{background:#392f20;border:1px solid #746034;border-radius:9px;
+  color:#f2dc9d;padding:10px 12px;margin:12px 0;font-size:12px;line-height:1.5}
+.party-invite-roster strong{color:#f8e5b3}
+@media(max-width:690px){
+  .party-attendee{align-items:flex-start;flex-direction:column}
+  .party-attendee .button-row{justify-content:flex-start}
+}
