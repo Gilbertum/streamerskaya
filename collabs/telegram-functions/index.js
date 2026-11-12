@@ -1,7 +1,7 @@
 "use strict";
 const crypto=require("node:crypto");
 const {initializeApp}=require("firebase-admin/app");
-const {getFirestore,FieldValue}=require("firebase-admin/firestore");
+const {getFirestore,FieldValue,FieldPath}=require("firebase-admin/firestore");
 const {onCall,onRequest,HttpsError}=require("firebase-functions/v2/https");
 const {onDocumentCreated}=require("firebase-functions/v2/firestore");
 const {defineSecret}=require("firebase-functions/params");
@@ -161,8 +161,8 @@ async function respondGroup(id,uid,action){
     if(g.status!=="collecting")return "Согласование уже завершено";
     if(action==="a" && g.options.length!==1)
       return "В заявке несколько вариантов: выбери подходящие даты в Collab Room (вкладка Приглашения): "+ROOM_URL;
-    tx.update(ref,{["responses."+uid]:action==="a"?[0]:[],
-      updatedAt:FieldValue.serverTimestamp()});
+    tx.update(ref,new FieldPath("responses",uid),action==="a"?[0]:[],
+      "updatedAt",FieldValue.serverTimestamp());
     return action==="a"?"✅ Ответ отправлен. Организатор выберет окончательное время.":
       "❌ Отказ передан организатору.";
   });
