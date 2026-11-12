@@ -45,7 +45,7 @@ test("saving a changed Twitch-exported stream updates the original slot ID",asyn
     entries(){return Object.entries(this.content)[Symbol.iterator]();}
   }
   const fn=new Function(
-    "FormData","isDate","isTime","state","serverTimestamp",
+    "FormData","isDate","isTime","state","db","serverTimestamp",
     "updateDoc","doc","addDoc","collection","publishPublicSchedule",
     "modalClose","render","flashMessage","queueTwitchAutoPush",
     between(app,"async function saveEvent(form) {","async function saveProfile(form) {")+
@@ -54,7 +54,7 @@ test("saving a changed Twitch-exported stream updates the original slot ID",asyn
     FakeFormData,
     v=>/^\d{4}-\d{2}-\d{2}$/.test(v),
     v=>/^\d{2}:\d{2}$/.test(v),
-    state,()=>({serverStamp:true}),
+    state,{},()=>({serverStamp:true}),
     async(ref,record)=>{updateCall={ref,record};},
     (...segments)=>segments.join("/"),
     async()=>{addCalls++;},
