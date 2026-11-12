@@ -302,7 +302,7 @@ export default {
       "Access-Control-Allow-Headers":"Authorization, Content-Type",
       "Access-Control-Allow-Methods":"POST, OPTIONS","Vary":"Origin"};
     if(url.pathname==="/health"&&request.method==="GET")
-      return json({ok:true,service:"collab-room-telegram-cloudflare",configured:!!env.TELEGRAM_BOT_TOKEN});
+      return json({ok:true,service:"collab-room-telegram-cloudflare",configured:!!(env.TELEGRAM_BOT_TOKEN&&env.TELEGRAM_WEBHOOK_SECRET&&env.GOOGLE_SERVICE_ACCOUNT_JSON)});
     if(url.pathname==="/api"){
       if(request.method==="OPTIONS")return new Response(null,{status:204,headers:cors});
       if(!validOrigin||request.method!=="POST")return json({error:"Forbidden"},403);
