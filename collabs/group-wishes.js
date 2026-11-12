@@ -5,7 +5,7 @@ import {
 const h = (x) => String(x ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]);
 const goodDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s||"") && !Number.isNaN(Date.parse(s+"T12:00:00Z"));
 const goodTime = s => /^([01]\d|2[0-3]):[0-5]\d$/.test(s||"");
-const time = o => h(o.start)+"–"+h(o.end)+(o.end<=o.start?" (+1 день)":"");
+const time = o => h(o.start)+"–"+h(o.end);
 const dateText = s => new Date(s+"T12:00:00Z").toLocaleDateString("ru-RU",{day:"numeric",month:"long",weekday:"short"});
 export function groupParticipants(g){return [g.organizerUid,...(g.inviteeUids||[])];}
 export function groupCollections(groupsA, groupsB) {

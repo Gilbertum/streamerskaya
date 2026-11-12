@@ -25,7 +25,7 @@ function readable(iso, opts) {
 function span(e) {
   if (!e.start || !e.end) return "Время неизвестно";
   if (e.start === "00:00" && e.end === "00:00") return "Весь день";
-  return h(e.start) + "–" + h(e.end) + (e.end <= e.start ? " (+1 день)" : "");
+  return h(e.start) + "–" + h(e.end) ;
 }
 function socials(data) {
   const names = [

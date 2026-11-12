@@ -7,7 +7,7 @@ const h = (value) => String(value ?? "").replace(/[&<>"']/g, (c) =>
 const link = (value) => { try { const u = new URL(String(value || "")); return u.protocol === "https:" ? h(u.href) : ""; } catch { return ""; } };
 const day = (iso,n) => { const d=new Date(iso+"T12:00:00Z");d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10); };
 const dt = (iso, opts={day:"numeric",month:"long"}) => new Date(iso+"T12:00:00Z").toLocaleDateString("ru-RU",opts);
-const time = (o) => o.start==="00:00"&&o.end==="00:00"?"Весь день":h(o.start||"")+"–"+h(o.end||"")+(o.end<=o.start?" (+1 день)":"");
+const time = (o) => o.start==="00:00"&&o.end==="00:00"?"Весь день":h(o.start||"")+"–"+h(o.end||"");
 const socials = (person) => [
   ["twitch","Twitch"],["telegram","Telegram"],["youtube","YouTube"],
   ["tiktok","TikTok"],["discord","Discord"],["steam","Steam"],["telegramDM","Написать в личный Telegram"]

@@ -42,6 +42,12 @@ function access() {
   } catch { return ""; }
 }
 export function hasTwitchToken() { return !!access(); }
+// Scope-free Helix read access. Never store or publish this token in Firestore.
+export function twitchScheduleHeaders() {
+  const token = access();
+  if (!twitchEnabled() || !token) return null;
+  return { "Client-Id": twitchClientId, Authorization: "Bearer " + token };
+}
 export function startTwitchAuthorization() {
   if (!twitchEnabled()) throw new Error("Сначала нужно указать Twitch Client ID в firebase-config.js.");
   const bytes = crypto.getRandomValues(new Uint8Array(24));
