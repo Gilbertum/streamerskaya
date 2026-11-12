@@ -54,7 +54,7 @@ function openDay(date, slots, locks, pending, ownerUid, focusId) {
 }
 function noLogin(screen){
   screen.innerHTML='<section class="auth"><div class="panel"><p class="eyebrow">Вход по приглашению</p><h1>Календарь модератора</h1>'+
-    '<p class="sub">Нужен отдельный Firebase-аккаунт, которому владелица канала разрешила доступ.</p>'+
+    '<p class="sub">Нужен отдельный Firebase-аккаунт, которому администратор канала разрешила доступ.</p>'+
     '<form data-form="mod-login"><div class="field"><label>Email</label><input type="email" name="email" autocomplete="username" required></div>'+
     '<div class="field"><label>Пароль</label><input type="password" name="password" autocomplete="current-password" required></div>'+
     '<button class="button" type="submit">Войти</button></form>'+
@@ -92,7 +92,7 @@ export async function startModeratorV3({db,auth,uid,screen,identity,user}){
   channelOptions.push(...accessible.filter(Boolean));
   function groupLegacy(x) {
     return { ...x,group:true,fromUid:x.organizerUid,toUid:uid,fromName:x.organizerName,
-      toName:(x.participants||[]).filter(n=>n!==x.organizerName).join(", ")||"Участницы" };
+      toName:(x.participants||[]).filter(n=>n!==x.organizerName).join(", ")||"Участники" };
   }
   function monthLocks(){
     const independent = [...new Map([...from,...to].map(x=>[x.id,x])).values()];

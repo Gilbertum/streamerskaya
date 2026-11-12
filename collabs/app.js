@@ -241,7 +241,7 @@ function renderCalendar() {
       '<div style="margin-top:7px"><span class="tag ' + h(item.type) + '">' + typeName(item.type) + '</span>' +
       (!isLock && !isParty && !isGroup && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
   }).join("");
-  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и выходные, а через «Хочу коллабу» отправляй одной заявкой несколько вариантов времени выбранным участницам.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="telegram-publish">✈ Отправить обновлённое расписание в ТГ</button><button class="button button-ghost" data-action="twitch-export">↗ В Twitch</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
+  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и выходные, а через «Хочу коллабу» отправляй одной заявкой несколько вариантов времени выбранным участникам.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="telegram-publish">✈ Отправить обновлённое расписание в ТГ</button><button class="button button-ghost" data-action="twitch-export">↗ В Twitch</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
     '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
     new Date(year, month - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" }) +
     '</h2><div class="button-row"><button class="button button-ghost small" data-action="previous-month">←</button><button class="button button-ghost small" data-action="current-month">Сегодня</button><button class="button button-ghost small" data-action="next-month">→</button></div></div><div class="calendar-week">' +
@@ -273,15 +273,15 @@ function renderSearch() {
     const extra = [m.weekdays ? "Будни: " + m.weekdays : "", m.weekend ? "Выходные: " + m.weekend : ""].filter(Boolean).join(" · ");
     return '<div class="search-result"><div class="person"><span class="avatar">' + h((m.nick || "?")[0].toUpperCase()) + '</span><div><div class="person-title">' + h(m.nick) + '</div><div class="person-meta">' + h(extra || "Окна уточняются в личной переписке") + '</div><div class="links" style="margin-top:7px">' + profileLinks(m) + '</div></div></div><div class="result-right"><span class="tag ' + m.status + '">' + statusLabel + '</span><button class="button small" data-action="invite" data-uid="' + h(m.id) + '"' + (m.status === "busy" ? " disabled" : "") + '>Пригласить →</button></div></div>';
   }).join("");
-  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Поиск свободных окон</p><h1>Собрать коллаб</h1><p class="sub">Укажи игру, дату и время — увидишь доступность каждой участницы. Время фиксируется по Москве.</p></div></div>' +
+  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Поиск свободных окон</p><h1>Собрать коллаб</h1><p class="sub">Укажи игру, дату и время — увидишь доступность каждого участника. Время фиксируется по Москве.</p></div></div>' +
     '<div class="panel"><form data-form="search" class="form-grid"><div class="field"><label for="findDate">Дата</label><input id="findDate" type="date" name="date" value="' + h(request.date) + '" required></div>' +
     '<div class="field"><label for="findGame">Игра или идея</label><input id="findGame" type="text" name="game" maxlength="90" placeholder="Например, The Forest" value="' + h(request.game) + '" required></div>' +
     '<div class="field"><label for="findStart">Начало, МСК</label><input id="findStart" type="time" name="start" value="' + h(request.start) + '" required></div>' +
     '<div class="field"><label for="findEnd">Конец, МСК</label><input id="findEnd" type="time" name="end" value="' + h(request.end) + '" required></div>' +
     '<div class="full button-row"><button class="button" type="submit">Найти участников</button><span class="tiny-note">Если конец раньше начала, считаем, что коллаб закончится на следующий день.</span></div></form></div>' +
     '<div class="section-bar" style="margin-top:25px"><h2>Кого можно пригласить</h2><span class="tiny-note">' + sorted.filter((p) => p.status === "free").length + " свободны · " + sorted.filter((p) => p.status === "maybe").length + " под вопросом</span></div>" +
-    '<div>' + (results || '<div class="empty">Пока в комнате нет других участниц. Добавь их через Firebase Authentication и allowedUsers.</div>') + '</div>' +
-    '<div class="notice info">Поиск учитывает отмеченные стримы, блокировки, сомнительные окна и принятые коллабы. Это предварительная проверка: окончательное согласие даёт сама участница.</div>';
+    '<div>' + (results || '<div class="empty">Пока в комнате нет других участников. Добавь их через Firebase Authentication и allowedUsers.</div>') + '</div>' +
+    '<div class="notice info">Поиск учитывает отмеченные стримы, блокировки, сомнительные окна и принятые коллабы. Это предварительная проверка: окончательное согласие даёт сам участник.</div>';
 }
 function renderInbox() {
   const all = proposals();
@@ -326,17 +326,17 @@ function renderInbox() {
       (p.message ? '<div class="invite-message">' + h(p.message) + '</div>' : "") +
       '<div class="button-row">' + controls.join("") + '</div></article>';
   }).join("");
-  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Центр согласований</p><h1>Приглашения</h1><p class="sub">Предложения появятся здесь без перезагрузки страницы. Принятая коллаба сразу займёт окно у обеих участниц.</p></div></div>' +
+  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Центр согласований</p><h1>Приглашения</h1><p class="sub">Предложения появятся здесь без перезагрузки страницы. Принятая коллаба сразу займёт окно у обоих участников.</p></div></div>' +
     groupInboxHtml(groupCollections(state.groupsOrganized,state.groupsInvited),state.uid) +
     '<div class="panel"><div class="tabs-mini"><button class="' + (state.inboxFilter === "pending" ? "active" : "") + '" data-action="inbox-pending">Ожидают ответа (' + pending.length + ')</button><button class="' + (state.inboxFilter === "all" ? "active" : "") + '" data-action="inbox-all">Вся история (' + all.length + ')</button></div>' +
-    (rows || '<div class="empty"><strong>Приглашений пока нет</strong>Загляни в «Собрать коллаб», чтобы позвать подруг поиграть.</div>') +
+    (rows || '<div class="empty"><strong>Приглашений пока нет</strong>Загляни в «Собрать коллаб», чтобы позвать других стримеров поиграть.</div>') +
     '</div>';
 }
 function publicLink(uid) { return location.origin + location.pathname + "#/s/" + encodeURIComponent(uid); }
 function moderatorLink(uid) { return location.origin + location.pathname + "#/mod/" + encodeURIComponent(uid); }
 function renderProfile() {
   const m = state.member || {};
-  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Твои настройки</p><h1>Профиль стримера</h1><p class="sub">Ник и ссылки видны другим участницам. Почта, пароль и личные отметки не отображаются в публичном расписании.</p></div></div>' +
+  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Твои настройки</p><h1>Профиль стримера</h1><p class="sub">Ник и ссылки видны другим участникам. Почта, пароль и личные отметки не отображаются в публичном расписании.</p></div></div>' +
     '<div class="two"><section class="panel"><h2>О себе</h2><form data-form="profile" class="form-grid">' +
     '<div class="field full"><label for="nick">Никнейм *</label><input id="nick" name="nick" maxlength="40" required value="' + h(m.nick || state.nick) + '"></div>' +
     '<div class="field full"><label for="twitch">Ссылка на Twitch</label><input id="twitch" name="twitch" type="url" placeholder="https://www.twitch.tv/..." value="' + h(m.twitch || "") + '"></div>' +
@@ -357,7 +357,7 @@ function renderProfile() {
     '<div class="profile-link">' + h(moderatorLink(state.uid)) + '</div>' +
     '<div class="button-row"><button class="button button-ghost small" data-action="copy-moderator">Копировать ссылку для модератора</button></div>' +
     '<p class="tiny-note">Создай в Firebase moderatorAccess / ' + h(state.uid) + ' / users / UID_МОДЕРАТОРА с полем enabled = true (boolean). Сама ссылка прав не даёт.</p>' +
-    '<h3 style="margin-top:26px">Доступ в комнату</h3><p class="tiny-note">Новых участниц добавляет владелица Firebase: создаёт учётную запись и разрешает UID в коллекции allowedUsers. Публичной регистрации здесь нет.</p>' +
+    '<h3 style="margin-top:26px">Доступ в комнату</h3><p class="tiny-note">Новых участников добавляет администратор Firebase: создаёт учётную запись и разрешает UID в коллекции allowedUsers. Публичной регистрации здесь нет.</p>' +
     '<p class="tiny-note">Твой UID для настройки доступа: <code>' + h(state.uid) + '</code></p></section></div>' +
     '<section class="panel" style="margin-top:18px"><div class="section-bar"><div><h2>Экспорт расписания в Twitch</h2>' +
     '<p class="tiny-note">Collab Room — источник. Размещай публичные планы в официальном календаре Twitch.</p></div>' +
@@ -497,7 +497,7 @@ function eventModal(id) {
   const option = (value, label) => '<option value="' + value + '"' + (source.type === value ? ' selected' : "") + '>' + label + '</option>';
   const legacyType = item && ["busy", "maybe", "free"].includes(source.type) ? option(source.type, "Ранее созданная отметка: " + typeName(source.type)) : "";
   modalOpen('<h2 id="modalTitle">' + (item ? "Редактировать событие" : "Новое событие") + '</h2><p class="muted">Дату и часы вводим по Москве. Пустой день считается свободным.</p>' +
-    (item && twitchOwnedId(state.uid,item.id) ? '<div class="notice info">Этот стрим импортирован из Twitch. При следующем обновлении название и время вернутся к значениям на Twitch. Галочка скрытия от зрителей сохранится.</div>' : "") +
+    (item && source.type === "stream" ? '<div class="notice info">Если этот стрим уже опубликован в Twitch, после сохранения изменений обнови расписание через «↗ В Twitch» или включи автосинхронизацию. При сохранении в Collab Room расписание Twitch само по себе не меняется.</div>' : "") +
     '<form data-form="event" data-id="' + h(id || "") + '" class="form-grid"><div class="field full"><label>Тип отметки</label><select name="type">' +
     legacyType + option("stream", "Стрим / запланированная игра") + option("off", "Выходной") + (!item ? option("wish", "✦ Хочу коллабу") : "") + '</select></div>' +
     '<div class="field full"><label>Игра / название стрима (для типа «Стрим»)</label><input name="title" maxlength="90" value="' + h(source.title || "") + '" placeholder="Far Far West"></div>' +
@@ -525,18 +525,18 @@ function wishModal() {
     const text = "Доступность каждого варианта проверится при отправке";
     const dm = safeUrl(member.telegramDM);
     return '<div class="wish-person-wrap"><label class="wish-person"><input type="checkbox" name="wishRecipient" value="' + h(member.id) + '">' +
-      '<span class="wish-person-details"><strong>' + h(member.nick || "Участница") + '</strong>' +
+      '<span class="wish-person-details"><strong>' + h(member.nick || "Участник") + '</strong>' +
       '<small>' + h(text) + '</small></span></label>' +
       (dm ? '<a class="wish-contact" href="' + dm + '" target="_blank" rel="noopener noreferrer">ЛС ↗</a>' : "") + '</div>';
   }).join("");
-  modalOpen('<h2 id="modalTitle">✦ Хочу коллабу</h2><p class="muted">Укажи игру и до пяти вариантов времени. Выбери участниц галочками — каждая отметит все подходящие варианты. Затем ты выберешь общий слот и подтвердишь его для всех.</p>' +
+  modalOpen('<h2 id="modalTitle">✦ Хочу коллабу</h2><p class="muted">Укажи игру и до пяти вариантов времени. Выбери участников галочками — каждый отметит все подходящие варианты. Затем ты выберешь общий слот и подтвердишь его для всех.</p>' +
     '<form data-form="wish"><div class="field"><label>Игра или идея *</label><input type="text" name="game" maxlength="90" placeholder="Например, The Forest" required></div>' +
     '<div class="section-bar" style="margin:18px 0 9px"><h3>Варианты даты и времени</h3><button class="button button-ghost small" type="button" data-action="add-wish-row">+ Ещё вариант</button></div>' +
     '<div id="wishRows" class="wish-rows">' + wishTimeRow(0) + '</div>' +
-    '<div class="section-bar" style="margin:22px 0 9px"><h3>Кого пригласить</h3><span class="tiny-note">До 10 участниц</span></div>' +
-    (people ? '<div class="wish-people">' + people + '</div>' : '<div class="notice info">В комнате пока нет других участниц.</div>') +
-    '<div class="field" style="margin-top:17px"><label>Сообщение (необязательно)</label><textarea name="message" maxlength="500" placeholder="Девочки, кто за совместный забег?"></textarea></div>' +
-    '<p class="tiny-note" style="margin:12px 0">Участницы выберут несколько подходящих вариантов. Ты подтвердишь только общий вариант, подходящий всем. До подтверждения время не блокируется.</p>' +
+    '<div class="section-bar" style="margin:22px 0 9px"><h3>Кого пригласить</h3><span class="tiny-note">До 10 участников</span></div>' +
+    (people ? '<div class="wish-people">' + people + '</div>' : '<div class="notice info">В комнате пока нет других участников.</div>') +
+    '<div class="field" style="margin-top:17px"><label>Сообщение (необязательно)</label><textarea name="message" maxlength="500" placeholder="Кто за совместный забег?"></textarea></div>' +
+    '<p class="tiny-note" style="margin:12px 0">Участники выберут несколько подходящих вариантов. Ты подтвердишь только общий вариант, подходящий всем. До подтверждения время не блокируется.</p>' +
     '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Отмена</button>' +
     '<button type="submit" class="button">Отправить приглашения</button></div></form>');
 }
@@ -558,7 +558,7 @@ function inviteModal(uid, replacesId = "") {
   const previous = replacesId ? state.locks.find((x) => x.id === replacesId) : null;
   if (replacesId && !previous) { flashMessage("Исходная коллаба не найдена.", true); return; }
   if (!member) return;
-  modalOpen('<h2 id="modalTitle">' + (replacesId ? "Предложить перенос: " : "Пригласить ") + h(member.nick) + '</h2><p class="muted">' + (replacesId ? "Старый подтверждённый коллаб сохранится до принятия новых даты и времени второй стороной." : "Отправь предложение. После принятия обе участницы увидят коллаб в календаре.") + '</p>' +
+  modalOpen('<h2 id="modalTitle">' + (replacesId ? "Предложить перенос: " : "Пригласить ") + h(member.nick) + '</h2><p class="muted">' + (replacesId ? "Старый подтверждённый коллаб сохранится до принятия новых даты и времени второй стороной." : "Отправь предложение. После принятия оба участника увидят коллаб в календаре.") + '</p>' +
     '<div class="links" style="margin:12px 0 20px">' + profileLinks(member) + '</div>' +
     '<form data-form="invite" data-uid="' + h(uid) + '" data-replaces="' + h(replacesId) + '" class="form-grid">' +
     '<div class="field full"><label>Игра или формат</label><input name="game" maxlength="90" required value="' + h(previous?.game || state.search.game) + '"></div>' +
@@ -789,7 +789,7 @@ async function sendInvite(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   const uid = form.dataset.uid;
   const member = person(uid);
-  if (!member || uid === state.uid) throw new Error("Участница не найдена.");
+  if (!member || uid === state.uid) throw new Error("Участник не найдена.");
   if (!isDate(data.date) || !isTime(data.start) || !isTime(data.end) || data.start === data.end) throw new Error("Проверь дату и часы коллаба.");
   if (data.date < mskToday()) throw new Error("Нельзя отправить приглашение на прошедший день.");
   const game = String(data.game || "").trim().slice(0, 90);
@@ -909,7 +909,7 @@ function loginScreen() {
   nav.hidden = true;
   $("logout").hidden = true;
   $("identity").textContent = "";
-  screen.innerHTML = '<section class="auth"><div class="panel"><p class="eyebrow">Только для участниц</p><h1>Вход в комнату</h1><p class="sub">Каждая стримерша получает личный кабинет. Регистрация закрыта: доступ создаёт организатор через Firebase.</p>' +
+  screen.innerHTML = '<section class="auth"><div class="panel"><p class="eyebrow">Только для участников</p><h1>Вход в комнату</h1><p class="sub">Каждый стример получает личный кабинет. Регистрация закрыта: доступ создаёт организатор через Firebase.</p>' +
     '<form data-form="login"><div class="field"><label>Почта</label><input name="email" type="email" autocomplete="username" required placeholder="you@example.com"></div>' +
     '<div class="field"><label>Пароль</label><input name="password" type="password" autocomplete="current-password" required placeholder="••••••••"></div>' +
     '<button class="button" type="submit">Войти</button></form><p class="tiny-note" style="margin-top:18px">Забыли пароль? Введите адрес почты и нажмите ниже.</p>' +
@@ -919,7 +919,7 @@ function deniedScreen() {
   nav.hidden = true;
   $("logout").hidden = false;
   $("identity").textContent = "Ожидает допуска";
-  screen.innerHTML = '<section class="auth"><div class="panel"><p class="eyebrow">Доступ ограничен</p><h1>Аккаунт ещё не допущен</h1><p class="sub">Почта подтверждает вход, но доступ к планам есть только у участниц, внесённых организатором в <code>allowedUsers</code>.</p>' +
+  screen.innerHTML = '<section class="auth"><div class="panel"><p class="eyebrow">Доступ ограничен</p><h1>Аккаунт ещё не допущен</h1><p class="sub">Почта подтверждает вход, но доступ к планам есть только у участников, внесённых организатором в <code>allowedUsers</code>.</p>' +
     '<div class="profile-link">UID: ' + h(state.uid) + '</div><p class="tiny-note">Отправь этот UID организатору. Ей нужно создать в Firestore документ allowedUsers / UID с полем enabled = true.</p>' +
     '<button class="button" data-action="check-access">Проверить доступ ещё раз</button></div></section>';
 }
@@ -978,14 +978,14 @@ async function checkAccess(user) {
   const old = await accessStep("Шаг 2 — чтение профиля members", () => getDoc(memberRef));
   if (!old.exists()) {
     await accessStep("Шаг 3 — создание нового профиля members", () => setDoc(memberRef, {
-      nick: ((user.email || "Новая участница").split("@")[0].length >= 2 ? (user.email || "").split("@")[0] : "Новая участница").slice(0, 40),
+      nick: ((user.email || "Новый участник").split("@")[0].length >= 2 ? (user.email || "").split("@")[0] : "Новый участник").slice(0, 40),
       twitch: "", steam: "", telegram: "", telegramDM: "", youtube: "", tiktok: "", discord: "",
       weekdays: "", weekend: "", updatedAt: serverTimestamp()
     }));
   }
   const fresh = await accessStep("Шаг 4 — повторное чтение профиля", () => getDoc(memberRef));
   state.member = fresh.data() || {};
-  state.nick = state.member.nick || "Участница";
+  state.nick = state.member.nick || "Участник";
   listen();
   render();
   setTimeout(()=>{if(state.uid===user.uid)queueTwitchAutoPush();},3500);
@@ -1094,7 +1094,7 @@ document.addEventListener("click", async (event) => {
     }
     if (action === "current-month") { state.date = mskToday(); state.month = state.date.slice(0, 7); render(); return; }
     if (action === "open-streamer") {
-      if (!person(target.dataset.uid)) throw new Error("Участница не найдена.");
+      if (!person(target.dataset.uid)) throw new Error("Участник не найдена.");
       state.streamerSelectedUid = target.dataset.uid;
       state.streamerMonth = mskToday().slice(0,7);
       render(); return;
@@ -1159,11 +1159,11 @@ document.addEventListener("click", async (event) => {
           if (!chosen || [group.organizerUid,...group.inviteeUids].some(uid=>availability(uid,chosen)==="busy"))
             throw new Error("Выбранное время уже занято у кого-то из участников. Проверь календари.");
           await finalizeGroupWish(db,group,state.uid,index);
-          flashMessage("Общий слот подтверждён. Время занято у всех участниц.");
+          flashMessage("Общий слот подтверждён. Время занято у всех участников.");
           queueTwitchAutoPush();
         } else {
           await cancelGroupWish(db,group,state.uid);
-          flashMessage("Групповая коллаба отменена у всех участниц.");
+          flashMessage("Групповая коллаба отменена у всех участников.");
         }
       } finally { state.busy=false; if(target.isConnected)target.disabled=false; }
       return;

@@ -1,0 +1,29 @@
+name: Collab Room stream editor regression
+on:
+  pull_request:
+    paths:
+      - 'collabs/app.js'
+      - 'collabs/twitch-export.js'
+      - 'collabs/views.js'
+      - 'collabs/group-wishes.js'
+      - 'collabs/moderator-v3.js'
+      - 'collabs/streamers-view.js'
+      - 'collabs/twitch-panel.js'
+      - 'collabs/tests/**'
+  push:
+    branches: [main]
+    paths:
+      - 'collabs/app.js'
+      - 'collabs/twitch-export.js'
+      - 'collabs/tests/**'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate schedule edit behavior and labels
+        run: |
+          node --test collabs/tests/stream-editor.test.mjs

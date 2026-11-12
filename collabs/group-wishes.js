@@ -39,10 +39,10 @@ export function groupInboxHtml(groups,uid){
     } else if(pending&&owner){
       details='<div class="group-responses">'+(g.inviteeUids||[]).map((id,i)=>{
         const selected=g.responses?.[id];
-        return '<div class="group-answer"><strong>'+h(g.inviteeNames?.[i]||"Участница")+'</strong>'+
+        return '<div class="group-answer"><strong>'+h(g.inviteeNames?.[i]||"Участник")+'</strong>'+
           '<small>'+(Array.isArray(selected)?(selected.length?selected.map(n=>h(dateText(g.options[n]?.date||g.options[0].date))+" · "+time(g.options[n]||g.options[0])).join("; "):"Отклонено в Telegram"):"Ожидается ответ")+'</small></div>';
       }).join("")+'</div>'+
-      '<p class="tiny-note">'+(allReplied?'Все ответили.':'Ожидаем ответы всех участниц.')+
+      '<p class="tiny-note">'+(allReplied?'Все ответили.':'Ожидаем ответы всех участников.')+
         (allReplied&&!common.length?' Нет общего окна: предложи новые даты.':'')+'</p>'+
       (common.length?'<div class="field"><label>Общее время (подходит всем)</label><select data-group-final-choice="'+h(g.id)+'">'+
         common.map(o=>'<option value="'+o.index+'">'+h(dateText(o.date))+' · '+time(o)+' МСК</option>').join("")+
@@ -85,7 +85,7 @@ export async function createGroupWish({db,form,members,uid,nick,today,busy}){
   }));
   validateChoices(options,today);
   const invited=[...new Set([...form.querySelectorAll('[name="wishRecipient"]:checked')].map(el=>el.value))];
-  if(invited.length<1||invited.length>10)throw new Error("Выбери от одной до десяти участниц.");
+  if(invited.length<1||invited.length>10)throw new Error("Выбери от одного до десяти участников.");
   if(invited.some(id=>id===uid||!members.some(m=>m.id===id)))throw new Error("Один из выбранных аккаунтов не найден.");
   if(!options.some(o=>!busy(uid,o)))throw new Error("В твоём календаре заняты все варианты.");
   const inviteeNames=invited.map(id=>members.find(m=>m.id===id).nick||"Стример");
@@ -114,7 +114,7 @@ export async function replyGroupWish(db,group,uid,choices){
 export async function finalizeGroupWish(db,group,uid,index){
   if(group.status!=="collecting"||group.organizerUid!==uid)throw new Error("Подтвердить время может только организатор.");
   if(!Number.isInteger(index)||index<0||index>=group.options.length||!groupCommon(group).some(o=>o.index===index))
-    throw new Error("Этот слот не подтверждён всеми участницами.");
+    throw new Error("Этот слот не подтверждён всеми участниками.");
   const chosen=group.options[index];
   const participants=groupParticipants(group);
   const batch=writeBatch(db);
