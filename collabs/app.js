@@ -545,6 +545,7 @@ async function sendWish(form) {
     db, form, members: state.members, uid: state.uid, nick: state.nick, today: mskToday(),
     busy: (memberId,request) => availability(memberId,request)==="busy"
   });
+  telegram.notify("g",created.id).catch(e=>console.warn("Telegram group notify:",e.message));
   modalClose();
   state.tab = "inbox"; state.inboxFilter = "pending";
   render();
@@ -592,6 +593,7 @@ async function addPartyParticipants(form) {
   if(choices.length>10||guests.length>15||guests.some(x=>x.length>40))
     throw new Error("Не больше 10 приглашений и 15 гостей с никами до 40 символов.");
   const batch=writeBatch(db);
+  const telegramProposalIds=[];
   for(const uid of choices) {
     const member=person(uid);
     if(!member||uid===state.uid||party.participantUids.includes(uid))throw new Error("Неверный участник.");
@@ -601,6 +603,7 @@ async function addPartyParticipants(form) {
       proposals().some(p=>p.fromUid===state.uid&&p.toUid===uid&&p.status==="pending"&&sameCollabSession(p,party)))
       throw new Error("У "+member.nick+" уже есть приглашение или подтверждение.");
     const proposalRef=doc(collection(db,"proposals"));
+    telegramProposalIds.push(proposalRef.id);
     const preview={fromUid:state.uid,toUid:uid,fromName:state.nick,toName:member.nick,
       date:party.date,start:party.start,end:party.end,game:party.game};
     batch.set(proposalRef,{...preview,replacesId:"",message:"Приглашение в действующую коллабу",
@@ -615,6 +618,8 @@ async function addPartyParticipants(form) {
     });
   }
   await batch.commit();
+  for(const id of telegramProposalIds)
+    telegram.notify("p",id).catch(e=>console.warn("Telegram notify:",e.message));
   modalClose();
   flashMessage("Состав сохранён."+(choices.length?" Приглашения отправлены: "+choices.length+".":""));
 }
@@ -813,6 +818,7 @@ async function sendInvite(form) {
     batch.set(doc(db, "moderatorPending", ownerUid, "items", proposalRef.id), preview);
   }
   await batch.commit();
+  telegram.notify("p",proposalRef.id).catch(e=>console.warn("Telegram notify:",e.message));
   modalClose();
   state.tab = "inbox";
   state.inboxFilter = "all";
@@ -998,7 +1004,7 @@ async function boot() {
     const app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
-    telegram = telegramClient(app);
+    telegram = telegramClient(auth);
     const match = location.hash.match(/^#\/s\/([A-Za-z0-9_-]{12,128})$/);
     if (match) {
       nav.hidden = true; $("logout").hidden = true;
