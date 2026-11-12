@@ -1,6 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { twitchPanelHtml, refreshTwitch, startTwitchAuthorization } from "./twitch-panel.js";
 import { streamersHtml, streamerDayHtml } from "./streamers-view.js";
+import { collabParties, canJoinExistingSession, partyForLock } from "./collab-parties.js";
 import { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, finalizeGroupWish, cancelGroupWish } from "./group-wishes.js";
 import { startPublicView } from "./views.js";
 import { startModeratorV3 } from "./moderator-v3.js";
@@ -107,15 +108,16 @@ function proposals() {
   return [...map.values()].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 }
 function myItems(date) {
-  const slots = state.slots.filter((item) => item.ownerUid === state.uid && item.date === date)
-    .map((item) => ({ ...item, kind: "slot" }));
-  const locks = state.locks.filter((item) => (item.fromUid === state.uid || item.toUid === state.uid) && item.date === date)
-    .map((item) => ({ ...item, id: item.id, type: "collab", kind: "lock" }));
-  const groups = state.groupCalendar.filter(item => item.participantsUids?.includes(state.uid) && item.date === date)
-    .map(item => ({ ...item, id: item.id, type: "collab", kind: "group" }));
-  return [...slots, ...locks, ...groups].sort((a,b)=>a.start.localeCompare(b.start));
+  const slots = state.slots.filter(item => item.ownerUid === state.uid && item.date === date)
+    .map(item => ({...item,kind:"slot"}));
+  const parties = collabParties(state.locks,nameOf)
+    .filter(p => p.participantUids.includes(state.uid) && p.date === date)
+    .map(p => ({...p,kind:p.locks.length>1?"party":"lock"}));
+  const groups = state.groupCalendar.filter(item=>item.participantsUids?.includes(state.uid)&&item.date===date)
+    .map(item=>({...item,type:"collab",kind:"group"}));
+  return [...slots,...parties,...groups].sort((a,b)=>a.start.localeCompare(b.start));
 }
-function availability(memberId, request, ignoreLockId = "") {
+function availability(memberId, request, ignoreLockId = "", joining = null) {
   const problems = [];
   for (const item of state.slots) {
     if (item.ownerUid !== memberId || item.type === "free") continue;
@@ -123,6 +125,7 @@ function availability(memberId, request, ignoreLockId = "") {
   }
   for (const item of state.locks) {
     if (item.id === ignoreLockId || (item.fromUid !== memberId && item.toUid !== memberId)) continue;
+    if (memberId === joining?.organizerUid && canJoinExistingSession(item, joining.organizerUid, {...request,game:joining.game})) continue;
     if (overlaps(item, request)) problems.push("busy");
   }
   if (state.groupCalendar.some(g => g.participantsUids?.includes(memberId) && overlaps(g,request))) problems.push("busy");
@@ -131,7 +134,7 @@ function availability(memberId, request, ignoreLockId = "") {
   return "free"; // Если ничего не отмечено, можно предложить коллаб.
 }
 
-function bookingConflicts(memberId, request, ignoreLockId = "") {
+function bookingConflicts(memberId, request, ignoreLockId = "", joining = null) {
   const blockers=[];
   for (const item of state.slots) {
     if (item.ownerUid !== memberId || item.type === "free" || item.type === "maybe" || !overlaps(item,request)) continue;
@@ -141,6 +144,7 @@ function bookingConflicts(memberId, request, ignoreLockId = "") {
   }
   for (const lock of state.locks) {
     if (lock.id === ignoreLockId || (lock.fromUid !== memberId && lock.toUid !== memberId) || !overlaps(lock,request)) continue;
+    if (memberId === joining?.organizerUid && canJoinExistingSession(lock,joining.organizerUid,{...request,game:joining.game})) continue;
     blockers.push({date:lock.date,start:lock.start,end:lock.end,
       label:"Коллаба: "+(lock.game||"Без игры")+" с "+nameOf(lock.fromUid===memberId?lock.toUid:lock.fromUid)});
   }
@@ -158,8 +162,8 @@ function duplicateConfirmedInvite(p, request, ignoreLockId = "") {
     lock.date===request.date && lock.start===request.start && lock.end===request.end &&
     String(lock.game||"").trim().toLowerCase()===String(p.game||"").trim().toLowerCase());
 }
-function conflictDescription(ownerUid,request,ignoreLockId="") {
-  const conflict=bookingConflicts(ownerUid,request,ignoreLockId)[0];
+function conflictDescription(ownerUid,request,ignoreLockId="",joining=null) {
+  const conflict=bookingConflicts(ownerUid,request,ignoreLockId,joining)[0];
   if(!conflict)return "";
   return (ownerUid===state.uid?"У тебя":"У "+nameOf(ownerUid))+
     " уже запланировано «"+conflict.label+"» "+dateLabel(conflict.date)+", "+fmtTime(conflict)+" МСК";
@@ -275,7 +279,7 @@ function renderInbox() {
     const duplicated = p.status === "pending" &&
       alternatives.every(slot => duplicateConfirmedInvite(p, slot, p.replacesId || ""));
     const conflicting = p.status === "pending" && inbound && !duplicated && alternatives.length === 1
-      ? [conflictDescription(state.uid,p,p.replacesId || ""),conflictDescription(p.fromUid,p,p.replacesId || "")].filter(Boolean) : [];
+      ? [conflictDescription(state.uid,p,p.replacesId || ""),conflictDescription(p.fromUid,p,p.replacesId || "",{organizerUid:p.fromUid,game:p.game})].filter(Boolean) : [];
     if (inbound && p.status === "pending") {
       if (duplicated) {
         controls.push('<button class="button button-ghost small" data-action="respond" data-answer="declined" data-id="' + h(p.id) + '">Убрать повтор</button>');
@@ -515,7 +519,7 @@ async function sendInvite(form) {
   if (duplicateConfirmedInvite({fromUid:state.uid,toUid:uid,game},request,replacesId)) {
     throw new Error("Такая коллаба с "+member.nick+" уже подтверждена. Повторное приглашение не требуется.");
   }
-  const senderConflict=conflictDescription(state.uid,request,replacesId);
+  const senderConflict=conflictDescription(state.uid,request,replacesId,{organizerUid:state.uid,game});
   const recipientConflict=conflictDescription(uid,request,replacesId);
   if(senderConflict||recipientConflict)throw new Error("Время занято: "+
     [senderConflict,recipientConflict].filter(Boolean).join("; ")+". Выбери другое время.");
@@ -567,7 +571,7 @@ async function respond(id, answer, optionIndex = 0) {
         nameOf(p.toUid)+" на "+dateLabel(selected.date)+", "+fmtTime(selected)+
         " МСК. Повторное приглашение можно отклонить без отмены подтверждённого.");
     const mine=conflictDescription(state.uid,selected,p.replacesId||"");
-    const theirs=conflictDescription(p.fromUid,selected,p.replacesId||"");
+    const theirs=conflictDescription(p.fromUid,selected,p.replacesId||"",{organizerUid:p.fromUid,game:p.game});
     if(mine||theirs)throw new Error("Не удалось принять приглашение: "+
       [mine,theirs].filter(Boolean).join("; ")+
       ". Существующие события не изменены. Согласуй другое время с организатором.");
