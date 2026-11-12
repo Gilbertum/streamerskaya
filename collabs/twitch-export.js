@@ -4,6 +4,7 @@
 const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
 const { twitchLogin, twitchScheduleHeaders } = await import("./twitch-panel.js" + moduleTag);
 const { collabParties } = await import("./collab-parties.js" + moduleTag);
+const { manualCollabTwitchTitle } = await import("./manual-collab.js" + moduleTag);
 
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const isoDate=s=>/^\d{4}-\d{2}-\d{2}$/.test(s||"")&& !Number.isNaN(Date.parse(s+"T12:00:00Z"));
@@ -44,8 +45,10 @@ export function buildTwitchExportSources({uid,slots,locks,groups,publicCollabs,p
   };
   for(const e of slots) {
     // Do not echo records previously pulled FROM Twitch in the retired importer.
-    if(e.ownerUid!==uid||e.type!=="stream"||e.public!==true||e.id.startsWith("tw_"+uid+"_"))continue;
-    push("slot_"+e.id,"stream",e,e.title||"Стрим");
+    if(e.ownerUid!==uid||!["stream","collab"].includes(e.type)||
+      e.public!==true||e.id.startsWith("tw_"+uid+"_"))continue;
+    push("slot_"+e.id,e.type,e,
+      e.type==="collab" ? manualCollabTwitchTitle(e) : (e.title||"Стрим"));
   }
   const visible=new Map(publicCollabs.map(p=>[p.id,p]));
   for(const party of collabParties(locks)){
