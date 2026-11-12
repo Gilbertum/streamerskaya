@@ -61,6 +61,6 @@ export function collabParties(locks, nameOf = () => "", manualGuests = []) {
   return groups;
 }
 
-export function partyForLock(locks, lockId, nameOf) {
-  return collabParties(locks, nameOf).find(p => p.locks.some(l => l.id === lockId)) || null;
+export function partyForLock(locks, lockId, nameOf, guests = []) {
+  return collabParties(locks, nameOf, guests).find(p => p.locks.some(l => l.id === lockId)) || null;
 }
