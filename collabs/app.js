@@ -210,19 +210,22 @@ function renderCalendar() {
       '</span></button>';
   }
   const events = myItems(state.date).map((item) => {
-    const isLock = item.kind === "lock", isGroup = item.kind === "group";
-    const title = isLock || isGroup ? ((isGroup ? "Групповая коллаба: " : "Коллаб: ") + (item.game||"Без названия"))
+    const isLock = item.kind === "lock", isParty = item.kind === "party", isGroup = item.kind === "group";
+    const title = isLock || isParty || isGroup ? ((isGroup ? "Групповая коллаба: " : "Коллаба: ") + (item.game||"Без названия"))
       : (item.type === "stream" ? (item.title || "Без названия") : typeName(item.type));
     const other = isGroup ? " · " + (item.participants||[]).join(", ") :
+      isParty ? " · состав: " + item.participants.join(", ") :
       isLock ? (' · с ' + nameOf(item.fromUid === state.uid ? item.toUid : item.fromUid)) : "";
-    const controls = isGroup
+    const controls = isParty
+      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="party-details" data-id="' + h(item.id) + '">Участники и управление</button></div>'
+      : isGroup
       ? '<div class="event-actions"><button class="button button-subtle tiny" data-action="group-cancel" data-id="' + h(item.id) + '">Отменить для всех</button></div>'
       : isLock
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="visibility-collab" data-id="' + h(item.id) + '">Зрителям</button><button class="button button-ghost tiny" data-action="move-collab" data-id="' + h(item.id) + '">Перенести</button><button class="button button-subtle tiny" data-action="cancel-collab" data-id="' + h(item.id) + '">Отменить</button></div>'
       : '<div class="event-actions"><button class="button button-ghost tiny" data-action="edit-event" data-id="' + h(item.id) + '">Изменить</button><button class="button button-subtle tiny" data-action="delete-event" data-id="' + h(item.id) + '">Удалить</button></div>';
     return '<div class="event"><div><div class="event-title">' + h(title) + '</div><div class="event-when">' + fmtTime(item) + h(other) + '</div>' +
       '<div style="margin-top:7px"><span class="tag ' + h(item.type) + '">' + typeName(item.type) + '</span>' +
-      (!isLock && !isGroup && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
+      (!isLock && !isParty && !isGroup && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
   }).join("");
   screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и выходные, а через «Хочу коллабу» отправляй одной заявкой несколько вариантов времени выбранным участницам.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
     '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
@@ -427,6 +430,39 @@ async function publishPublicSchedule() {
   await setDoc(doc(db, "publicSchedules", state.uid), {
     nick: m.nick || state.nick, twitch: m.twitch || "", telegram: m.telegram || "", youtube: m.youtube || "", tiktok: m.tiktok || "", discord: m.discord || "", events, updatedAt: serverTimestamp()
   });
+}
+function collabPartyModal(lockId) {
+  const party = partyForLock(state.locks, lockId, nameOf);
+  if (!party || !party.participantUids.includes(state.uid)) {
+    throw new Error("Коллаба уже отменена или недоступна.");
+  }
+  const head = '<h2 id="modalTitle">Участники коллабы</h2>' +
+    '<p class="sub">' + h(party.game || "Игра не указана") + ' · ' +
+    h(dateLabel(party.date)) + ' · ' + fmtTime(party) + ' МСК</p>' +
+    '<div class="notice ok">Подтвердили участие: ' + party.participants.length +
+    ' — ' + h(party.participants.join(", ")) + '</div>';
+  const attendeeRows = party.locks.map(lock => {
+    const guest = nameOf(lock.toUid);
+    const canManage = state.uid === lock.fromUid || state.uid === lock.toUid;
+    return '<div class="party-attendee"><div><strong>' + h(guest) + '</strong>' +
+      '<p class="tiny-note">✓ Участие подтверждено</p></div>' +
+      (canManage ? '<div class="button-row">' +
+      '<button class="button button-ghost tiny" data-action="visibility-collab" data-id="' + h(lock.id) + '">Зрителям</button>' +
+      '<button class="button button-ghost tiny" data-action="move-collab" data-id="' + h(lock.id) + '">Перенести</button>' +
+      '<button class="button button-subtle tiny" data-action="cancel-collab" data-id="' + h(lock.id) + '">' +
+        (state.uid === lock.toUid ? "Отменить своё участие" : "Исключить участника") + '</button></div>' : "") +
+      '</div>';
+  }).join("");
+  const pending = state.uid === party.fromUid ? proposals().filter(p =>
+    p.fromUid === party.fromUid && p.status === "pending" &&
+    p.date === party.date && p.start === party.start && p.end === party.end &&
+    String(p.game || "").trim().toLowerCase() === String(party.game || "").trim().toLowerCase()
+  ).map(p=>nameOf(p.toUid)) : [];
+  modalOpen(head + '<div class="party-attendees">' + attendeeRows + '</div>' +
+    (pending.length ? '<p class="tiny-note" style="margin-top:15px">Ещё ожидают ответа: ' +
+      h([...new Set(pending)].join(", ")) + '</p>' : "") +
+    '<p class="tiny-note">Управление отдельным участником не отменяет участие остальных. Состав обновляется после новых подтверждений.</p>' +
+    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button></div>');
 }
 async function collabVisibilityModal(id) {
   const lock = state.locks.find((x) => x.id === id && [x.fromUid, x.toUid].includes(state.uid));
@@ -879,6 +915,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "edit-event") { eventModal(target.dataset.id); return; }
+    if (action === "party-details") { collabPartyModal(target.dataset.id); return; }
     if (action === "move-collab") {
       const lock = state.locks.find((x) => x.id === target.dataset.id && [x.fromUid, x.toUid].includes(state.uid));
       if (!lock) throw new Error("Коллаба уже недоступна.");
@@ -887,10 +924,14 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "cancel-collab") {
-      if (!confirm("Отменить подтверждённую коллабу у обоих участников?")) return;
+      const party = partyForLock(state.locks,target.dataset.id,nameOf);
+      const message = party?.locks.length > 1
+        ? "Отменить участие этого стримера? Остальные останутся в общей коллабе."
+        : "Отменить подтверждённую коллабу у обоих участников?";
+      if (!confirm(message)) return;
       if (state.busy) return;
       state.busy = true;
-      try { await respond(target.dataset.id, "cancelled"); }
+      try { await respond(target.dataset.id, "cancelled"); modalClose(); }
       finally { state.busy = false; }
       return;
     }
