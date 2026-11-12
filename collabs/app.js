@@ -126,7 +126,7 @@ function myItems(date) {
     .map(item => ({...item,kind:"slot"}));
   const parties = collabParties(state.locks,nameOf,state.manualGuests)
     .filter(p => p.participantUids.includes(state.uid) && p.date === date)
-    .map(p => ({...p,kind:p.locks.length>1?"party":"lock"}));
+    .map(p => ({...p,kind:"party"}));
   const groups = state.groupCalendar.filter(item=>item.participantsUids?.includes(state.uid)&&item.date===date)
     .map(item=>({...item,type:"collab",kind:"group"}));
   return [...slots,...parties,...groups].sort((a,b)=>a.start.localeCompare(b.start));
