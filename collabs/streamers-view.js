@@ -36,17 +36,17 @@ export function streamersHtml({members,slots,locks,diary,selectedUid,month,me,ma
       const avatar=meta?.avatar && link(meta.avatar)
         ? '<img loading="lazy" alt="" src="'+link(meta.avatar)+'">' : h((p.nick||"?").slice(0,1).toUpperCase());
       return '<button type="button" class="streamer-card" data-action="open-streamer" data-uid="'+h(p.id)+'">'+
-        '<span class="streamer-card-avatar">'+avatar+'</span><span class="streamer-card-name">'+h(p.nick||"Участница")+'</span>'+
+        '<span class="streamer-card-avatar">'+avatar+'</span><span class="streamer-card-name">'+h(p.nick||"Участник")+'</span>'+
         '<span class="tiny-note">'+(p.weekdays?'Будни: '+h(p.weekdays):"Открыть профиль и расписание")+'</span>'+
         '<span class="streamer-card-go">Профиль и календарь →</span></button>';
     }).join("");
-    return '<div class="hero"><div><p class="eyebrow">Участницы комнаты</p><h1>Стримеры</h1><p class="sub">Смотри, кто в эфире, открывай соцсети и месячный календарь подруг. Личные сообщения из приглашений здесь не показываются.</p></div></div>'+
+    return '<div class="hero"><div><p class="eyebrow">Участники комнаты</p><h1>Стримеры</h1><p class="sub">Смотри, кто в эфире, открывай соцсети и месячные календари других стримеров. Личные сообщения из приглашений здесь не показываются.</p></div></div>'+
       twitchPanelHtml(members) +
-      '<section><div class="section-bar"><h2>Все участницы ('+people.length+')</h2></div><div class="streamers-cards">'+
+      '<section><div class="section-bar"><h2>Все участники ('+people.length+')</h2></div><div class="streamers-cards">'+
       (list||'<div class="empty">Другие стримеры пока не добавлены.</div>')+'</div></section>';
   }
   const person=members.find(m=>m.id===selectedUid);
-  if(!person)return '<div class="empty">Участница не найдена. <button class="button button-ghost" data-action="streamers-back">Назад</button></div>';
+  if(!person)return '<div class="empty">Участник не найдена. <button class="button button-ghost" data-action="streamers-back">Назад</button></div>';
   const events=ownDiaryEvents(selectedUid,slots,locks,diary,members,manualGuests);
   const [year,mo]=month.split("-").map(Number);
   const first=(new Date(Date.UTC(year,mo-1,1)).getUTCDay()+6)%7;
@@ -61,7 +61,7 @@ export function streamersHtml({members,slots,locks,diary,selectedUid,month,me,ma
       '<span class="mod-day-number">'+Number(date.slice(8))+'</span>'+chips+
       (items.length>4?'<small>+'+(items.length-4)+'</small>':"")+'</button>';
   }
-  return '<div class="hero"><div><p class="eyebrow">Карточка участницы</p><h1>'+h(person.nick)+'</h1><p class="sub">Календарь на месяц (МСК). Стримы, выходные и подтверждённые коллабы; без переписки и внутренних сообщений.</p></div>'+
+  return '<div class="hero"><div><p class="eyebrow">Карточка участника</p><h1>'+h(person.nick)+'</h1><p class="sub">Календарь на месяц (МСК). Стримы, выходные и подтверждённые коллабы; без переписки и внутренних сообщений.</p></div>'+
     '<button class="button button-ghost" data-action="streamers-back">← Ко всем стримерам</button></div>'+
     '<section class="panel" style="margin-bottom:18px"><h3>Ссылки и обычное время</h3><div class="button-row">'+
       (socials(person)||'<span class="tiny-note">Ссылки ещё не добавлены.</span>')+'</div>'+
