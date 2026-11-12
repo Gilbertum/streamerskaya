@@ -452,6 +452,40 @@ async function commitTwitchExport(form) {
   flashMessage("В Twitch опубликовано или обновлено "+success+" трансляций.");
 }
 
+
+function queueTwitchAutoPush(){
+  if(!state.authorized||!wantsTwitchAuto())return;
+  clearTimeout(twitchAutoPushTimer);
+  twitchAutoPushTimer=setTimeout(()=>{runTwitchAutoPush();},2500);
+}
+async function runTwitchAutoPush(){
+  if(twitchAutoPushRunning||state.busy||!state.authorized||!wantsTwitchAuto())return;
+  twitchAutoPushRunning=true;
+  const uid=state.uid;
+  try{
+    const identity=await exportIdentity(state.member?.twitch||"");
+    if(!identity.ready||uid!==state.uid)return;
+    const {sources,links}=await twitchExportSourceSnapshots();
+    if(links.some(l=>l.broadcasterId!==identity.broadcasterId))return;
+    const remote=await getTwitchSegments(identity);
+    const plan=buildExportPlan({sources,links,remote});
+    const selected=plan.filter(e=>e.mode==="create"||e.mode==="update").map(e=>e.id);
+    if(!selected.length)return;
+    const results=await pushSelectedEvents({identity,plan,selected,
+      saveLink:async(e,segmentId,broadcasterId)=>{
+        if(uid!==state.uid)throw new Error("Аккаунт Collab Room изменился.");
+        await setDoc(doc(db,"twitchExportLinks",uid,"items",e.id),{
+          ownerUid:uid,sourceId:e.id,segmentId,broadcasterId,
+          date:e.date,start:e.start,end:e.end,title:e.display,updatedAt:serverTimestamp()
+        });
+      }
+    });
+    if(results.some(r=>!r.ok))console.warn("Twitch autoexport stopped:",results.find(r=>!r.ok).error);
+    else if(results.length)flashMessage("В Twitch автоматически обновлено "+results.length+" событий.");
+  }catch(error){console.warn("Twitch autoexport:",error?.message||error);}
+  finally{twitchAutoPushRunning=false;}
+}
+
 function eventModal(id) {
   const item = state.slots.find((x) => x.id === id && x.ownerUid === state.uid);
   const source = item || { date: state.date, start: "20:00", end: "23:00", type: "stream", title: "", public: true };
@@ -627,6 +661,7 @@ async function saveEvent(form) {
   modalClose();
   render();
   flashMessage("Событие сохранено.");
+  queueTwitchAutoPush();
 }
 async function saveProfile(form) {
   const data = Object.fromEntries(new FormData(form).entries());
@@ -763,6 +798,7 @@ async function respond(id, answer, optionIndex = 0) {
     ? (oldLock ? "Перенос подтверждён: старое время освобождено, новое сохранено." : "Коллаба подтверждена. Общий состав участников обновится автоматически.")
     : answer === "declined" ? "Приглашение отклонено." : "Коллаба или приглашение отменены.";
   flashMessage(message);
+  queueTwitchAutoPush();
 }
 async function refreshOwn() {
   if (!state.authorized) return;
@@ -795,6 +831,7 @@ function setupScreen() {
     '<div class="notice info">Весь исходный код сайта уже доступен на GitHub. Пошаговая инструкция — в файле <code>collabs/README.md</code>.</div></div></section>';
 }
 function cleanup() {
+  clearTimeout(twitchAutoPushTimer);
   for (const unsub of state.unsubs) try { unsub(); } catch { /* noop */ }
   state.unsubs = [];
   state.sent = []; state.received = []; state.slots = []; state.locks = []; state.members = [];
@@ -849,6 +886,7 @@ async function checkAccess(user) {
   state.nick = state.member.nick || "Участница";
   listen();
   render();
+  setTimeout(()=>{if(state.uid===user.uid)queueTwitchAutoPush();},3500);
 
   // A permission issue when publishing the public schedule must not block private login.
   try {
