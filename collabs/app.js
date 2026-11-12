@@ -923,6 +923,8 @@ async function boot() {
       });
       return;
     }
+    if(location.hash==="#/streamers")state.tab="streamers";
+    if(location.hash==="#/calendar")state.tab="calendar";
     onAuthStateChanged(auth, async (user) => {
       cleanup();
       state.authorized = false;
