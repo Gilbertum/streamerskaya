@@ -124,26 +124,28 @@ async function respondProposal(id,uid,action){
     if(p.status!=="pending")return "Приглашение уже обработано";
     if(action==="a" && ((p.timeOptions||[]).length>1||p.replacesId))
       return "В этой заявке требуется выбрать время или согласовать перенос на сайте (вкладка Приглашения): "+ROOM_URL;
+    const choice=p.timeOptions?.length===1?{...p,...p.timeOptions[0]}:p;
     if(action==="a"){
       const [slotDocs,lockDocs,groups]=await Promise.all([
         tx.get(db.collection("slots").where("ownerUid","in",[p.fromUid,p.toUid])),
         tx.get(db.collection("collabLocks")),
         tx.get(db.collection("groupCalendar"))
       ]);
-      const reason=conflict({proposal:p,slots:slotDocs.docs.map(d=>d.data()),
+      const reason=conflict({proposal:choice,slots:slotDocs.docs.map(d=>d.data()),
         locks:lockDocs.docs.map(d=>({id:d.id,...d.data()})),
         groups:groups.docs.map(d=>d.data())});
       if(reason)return "Не удалось принять: "+reason+". Проверь календарь в Collab Room.";
       tx.set(db.doc("collabLocks/"+id),{
         fromUid:p.fromUid,toUid:p.toUid,fromName:p.fromName,toName:p.toName,
-        date:p.date,start:p.start,end:p.end,game:p.game
+        date:choice.date,start:choice.start,end:choice.end,game:p.game
       });
       for(const ownerUid of [p.fromUid,p.toUid])tx.set(db.doc("publicCollabs/"+ownerUid+"/items/"+id),{
-        date:p.date,start:p.start,end:p.end,type:"collab",game:"",partner:""
+        date:choice.date,start:choice.start,end:choice.end,type:"collab",game:"",partner:""
       });
     }
     tx.update(ref,{status:action==="a"?"accepted":"declined",
-      respondedAt:FieldValue.serverTimestamp()});
+      respondedAt:FieldValue.serverTimestamp(),
+      ...(action==="a"&&p.timeOptions?.length===1?{chosenIndex:0,date:choice.date,start:choice.start,end:choice.end}:{})});
     for(const ownerUid of [p.fromUid,p.toUid])
       tx.delete(db.doc("moderatorPending/"+ownerUid+"/items/"+id));
     return action==="a"?"✅ Приглашение принято. Коллаба добавлена в календари.":"❌ Приглашение отклонено.";
