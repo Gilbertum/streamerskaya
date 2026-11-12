@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#14151c">
   <meta name="description" content="Закрытый планировщик коллабораций для стримеров: расписание, свободные окна и приглашения.">
   <title>Collab Room — планировщик стримеров</title>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css" id="collabStyles">
 </head>
 <body>
   <div class="ambient"></div>
@@ -45,6 +45,18 @@
       <div id="modalContent"></div>
     </section>
   </div>
-  <script type="module" src="./app.js"></script>
+  <script type="module">
+    // GitHub Pages can cache JavaScript for several minutes. A unique query
+    // per visit makes sure every participant uses the newest release.
+    const revision = String(Date.now());
+    document.getElementById("collabStyles").href = "./styles.css?load=" + revision;
+    try {
+      await import("./app.js?load=" + revision);
+    } catch (error) {
+      console.error("Collab Room failed to load:", error);
+      const el = document.getElementById("screen");
+      el.textContent = "Не удалось загрузить приложение. Обнови страницу. Если ошибка повторится, пришли скрин.";
+    }
+  </script>
 </body>
 </html>
