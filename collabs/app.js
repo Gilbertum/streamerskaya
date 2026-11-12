@@ -155,7 +155,9 @@ function bookingConflicts(memberId, request, ignoreLockId = "", joining = null) 
     if (item.ownerUid !== memberId || item.type === "free" || item.type === "maybe" || !overlaps(item,request)) continue;
     blockers.push({date:item.date,start:item.start,end:item.end,
       label:item.type === "stream" ? "Стрим: " + (item.title||"Без игры") :
-        item.type === "off" ? "Выходной" : "Недоступна"});
+        item.type === "collab" ? "Коллаба: " + (item.title||"Игра неизвестна") +
+          (item.guestNick ? " с "+item.guestNick : "") :
+        item.type === "off" ? "Выходной" : "Недоступно"});
   }
   for (const lock of state.locks) {
     if (lock.id === ignoreLockId || (lock.fromUid !== memberId && lock.toUid !== memberId) || !overlaps(lock,request)) continue;
@@ -244,7 +246,7 @@ function renderCalendar() {
       '<div style="margin-top:7px"><span class="tag ' + h(item.type) + '">' + typeName(item.type) + '</span>' +
       (!isLock && !isParty && !isGroup && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
   }).join("");
-  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и выходные, а через «Хочу коллабу» отправляй одной заявкой несколько вариантов времени выбранным участникам.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="telegram-publish">✈ Отправить обновлённое расписание в ТГ</button><button class="button button-ghost" data-action="twitch-export">↗ В Twitch</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
+  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и ручные коллабы с гостями вне сайта. Через «Хочу коллабу» согласовывай время с участниками Collab Room.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="telegram-publish">✈ Отправить обновлённое расписание в ТГ</button><button class="button button-ghost" data-action="twitch-export">↗ В Twitch</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
     '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
     new Date(year, month - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" }) +
     '</h2><div class="button-row"><button class="button button-ghost small" data-action="previous-month">←</button><button class="button button-ghost small" data-action="current-month">Сегодня</button><button class="button button-ghost small" data-action="next-month">→</button></div></div><div class="calendar-week">' +
