@@ -1,0 +1,15 @@
+{
+  "name": "xwaran-collab-telegram-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check src/index.js && node --check src/store.js && node --check src/logic.js"
+  },
+  "devDependencies": {
+    "wrangler": "^4.50.0"
+  }
+}
