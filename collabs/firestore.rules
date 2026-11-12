@@ -514,9 +514,9 @@ service cloud.firestore {
     }
     match /collabGuests/{sessionId} {
       allow read: if member();
-      allow create, update: if member() && goodCollabGuests(request.resource.data)
-        && (!exists(/databases/$(database)/documents/collabGuests/$(sessionId))
-           || resource.data.ownerUid == request.auth.uid);
+      allow create: if member() && goodCollabGuests(request.resource.data);
+      allow update: if member() && resource.data.ownerUid == request.auth.uid
+        && goodCollabGuests(request.resource.data);
       allow delete: if member() && resource.data.ownerUid == request.auth.uid;
     }
 
