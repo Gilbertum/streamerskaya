@@ -25,7 +25,7 @@ function typeName(e){
 }
 function description(e){
   if(e.type==="stream")return e.title||"Игра пока неизвестна";
-  if(e.type==="collab")return e.game||e.title||"Коллаба";
+  if(e.type==="collab")return e.kind==="slot" ? "Коллаба"+(e.title?": "+e.title:"") : (e.game||"Коллаба");
   return typeName(e);
 }
 export function streamersHtml({members,slots,locks,diary,selectedUid,month,me,manualGuests=[]}){
