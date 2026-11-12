@@ -9,6 +9,7 @@ const { utcWindow, buildTwitchExportSources, buildExportPlan, exportIdentity,
 const { collabParties, canJoinExistingSession, partyForLock, sameCollabSession, partySessionId } = await import("./collab-parties.js" + moduleTag);
 const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, finalizeGroupWish, cancelGroupWish } = await import("./group-wishes.js" + moduleTag);
 const { startPublicView } = await import("./views.js" + moduleTag);
+const { publicSlotEvent } = await import("./manual-collab.js" + moduleTag);
 const { telegramClient } = await import("./telegram-client.js" + moduleTag);
 const { startModeratorV3 } = await import("./moderator-v3.js" + moduleTag);
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
@@ -115,7 +116,7 @@ function profileLinks(member) {
   return links.join("");
 }
 function typeName(type) {
-  return ({ stream: "Стрим", off: "Выходной", busy: "Недоступна", maybe: "Под вопросом", free: "Свободна", collab: "Коллаб" })[type] || "Событие";
+  return ({ stream: "Стрим", off: "Выходной", busy: "Недоступна", maybe: "Под вопросом", free: "Свободна", collab: "Коллаба" })[type] || "Событие";
 }
 function proposals() {
   const map = new Map([...state.sent, ...state.received].map((p) => [p.id, p]));
@@ -218,7 +219,7 @@ function renderCalendar() {
       : item.type === "collab" ? "Коллаба" : item.type === "maybe" ? "Под вопросом" : item.type === "busy" ? "Занято" : "Свободно";
     dayButtons += '<button type="button" class="' + classes.join(" ") + '" data-action="select-day" data-date="' + date + '"><span class="day-number">' + Number(date.slice(8)) + '</span>' +
       '<span class="calendar-day-labels">' + items.slice(0, 3).map((item) =>
-        '<span class="calendar-day-label ' + h(item.type) + '" title="' + h(item.type === "stream" ? (item.title || "Стрим") : item.type === "collab" ? (item.game || "Коллаба") : shortName(item)) + '">' +
+        '<span class="calendar-day-label ' + h(item.type) + '" title="' + h(item.type === "stream" ? (item.title || "Стрим") : item.type === "collab" ? (item.game || item.title || "Коллаба") : shortName(item)) + '">' +
         h(shortName(item)) + '</span>').join("") +
       (items.length > 3 ? '<span class="calendar-more">+' + (items.length - 3) + '</span>' : "") +
       '</span></button>';
@@ -226,10 +227,12 @@ function renderCalendar() {
   const events = myItems(state.date).map((item) => {
     const isLock = item.kind === "lock", isParty = item.kind === "party", isGroup = item.kind === "group";
     const title = isLock || isParty || isGroup ? ((isGroup ? "Групповая коллаба: " : "Коллаба: ") + (item.game||"Без названия"))
-      : (item.type === "stream" ? (item.title || "Без названия") : typeName(item.type));
+      : (item.type === "stream" ? (item.title || "Без названия")
+        : item.type === "collab" ? "Коллаба: "+(item.title || "игра пока неизвестна") : typeName(item.type));
     const other = isGroup ? " · " + (item.participants||[]).join(", ") :
       isParty ? " · состав: " + item.participants.join(", ") :
-      isLock ? (' · с ' + nameOf(item.fromUid === state.uid ? item.toUid : item.fromUid)) : "";
+      isLock ? (' · с ' + nameOf(item.fromUid === state.uid ? item.toUid : item.fromUid))
+      : item.type === "collab" && item.guestNick ? " · с "+item.guestNick : "";
     const controls = isParty
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="party-details" data-id="' + h(item.id) + '">Участники и управление</button></div>'
       : isGroup
@@ -499,8 +502,15 @@ function eventModal(id) {
   modalOpen('<h2 id="modalTitle">' + (item ? "Редактировать событие" : "Новое событие") + '</h2><p class="muted">Дату и часы вводим по Москве. Пустой день считается свободным.</p>' +
     (item && source.type === "stream" ? '<div class="notice info">Если этот стрим уже опубликован в Twitch, после сохранения изменений обнови расписание через «↗ В Twitch» или включи автосинхронизацию. При сохранении в Collab Room расписание Twitch само по себе не меняется.</div>' : "") +
     '<form data-form="event" data-id="' + h(id || "") + '" class="form-grid"><div class="field full"><label>Тип отметки</label><select name="type">' +
-    legacyType + option("stream", "Стрим / запланированная игра") + option("off", "Выходной") + (!item ? option("wish", "✦ Хочу коллабу") : "") + '</select></div>' +
-    '<div class="field full"><label>Игра / название стрима (для типа «Стрим»)</label><input name="title" maxlength="90" value="' + h(source.title || "") + '" placeholder="Far Far West"></div>' +
+    legacyType + option("stream", "Стрим / запланированная игра") + option("collab", "Коллаба (участник вне сайта)") + option("off", "Выходной") + (!item ? option("wish", "✦ Хочу коллабу") : "") + '</select></div>' +
+    '<div class="field full"><label>Игра / название стрима или коллабы</label><input name="title" maxlength="90" value="' + h(source.title || "") + '" placeholder="Например, Chained Together (можно оставить пустым)"></div>' +
+    '<div class="field full" data-manual-collab' + (source.type === "collab" ? "" : " hidden") + '><label>Ник участника вне Collab Room *</label>' +
+      '<input name="guestNick" maxlength="80" placeholder="Например, HellFox" value="' + h(source.guestNick || "") + '"' + (source.type === "collab" ? " required" : "") + '>' +
+      '<p class="tiny-note">Гость добавляется вручную: ему не отправляются приглашения, его расписание не меняется.</p></div>' +
+    '<div class="field full manual-collab-privacy" data-manual-collab' + (source.type === "collab" ? "" : " hidden") + '>' +
+      '<label class="check-line"><input name="showGame" type="checkbox"' + (source.showGame === true ? " checked" : "") + '>Показывать игру зрителям</label>' +
+      '<label class="check-line"><input name="showGuest" type="checkbox"' + (source.showGuest === true ? " checked" : "") + '>Показывать ник гостя зрителям</label>' +
+      '<p class="tiny-note">Если галочки сняты, зрители увидят только «Коллаба» и время. Ник гостя виден внутри комнаты и модераторам.</p></div>' +
     '<div class="field full"><label>Примечания (не видны зрителям)</label><textarea name="details" maxlength="500" placeholder="Например, гости, план или примечания">' + h(source.details || "") + '</textarea></div>' +
     '<div class="field"><label>Дата</label><input type="date" name="date" value="' + h(source.date) + '" required></div>' +
     '<div class="field"><label>Начало, МСК</label><input type="time" name="start" value="' + h(source.start) + '" required></div>' +
@@ -508,7 +518,7 @@ function eventModal(id) {
     '<div class="full"><button type="button" class="button button-ghost small" data-action="whole-day">Отметить весь день (00:00–00:00)</button></div>' +
     '<label class="check-line" style="align-self:end;padding-bottom:9px"><input name="hidePublic" type="checkbox" ' + (source.public === false ? "checked" : "") + '>Не показывать зрителям</label>' +
     '<p class="tiny-note full">Скрытие или удаление события в Collab Room не удаляет уже опубликованный эфир из календаря Twitch. Это можно сделать вручную на Twitch.</p>' +
-    '<p class="tiny-note full">Стримы и выходные публикуются автоматически. Галочка скрывает событие. У коллабов отдельные настройки видимости.</p>' +
+    '<p class="tiny-note full">Стримы, выходные и ручные коллабы автоматически появляются у зрителей, если не скрыты. Игра и ник гостя для ручной коллабы раскрываются только по отдельным галочкам.</p>' +
     '<div class="form-actions full">' + (item ? '<button type="button" class="button button-subtle" data-action="delete-event" data-id="' + h(id) + '">Удалить</button>' : "") +
     '<button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Сохранить</button></div></form>');
 }
@@ -574,10 +584,10 @@ async function publishPublicSchedule() {
   const cutoff = addDays(mskToday(), -30);
   const maxDate = addDays(mskToday(), 365);
   const events = own.docs.map((d) => d.data())
-    .filter((e) => (e.type === "stream" || e.type === "off") && e.public === true && e.date >= cutoff && e.date <= maxDate)
+    .filter((e) => ["stream", "off", "collab"].includes(e.type) && e.public === true && e.date >= cutoff && e.date <= maxDate)
     .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))
     .slice(0, 300)
-    .map((e) => ({ date: e.date, start: e.start, end: e.end, type: e.type, title: e.type === "off" ? "" : String(e.title || "").slice(0, 90) }));
+    .map(publicSlotEvent);
   const memberSnap = await getDoc(doc(db, "members", state.uid));
   const m = memberSnap.data() || {};
   await setDoc(doc(db, "publicSchedules", state.uid), {
@@ -742,13 +752,25 @@ async function saveCollabVisibility(form) {
 async function saveEvent(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   if (!isDate(data.date) || !isTime(data.start) || !isTime(data.end) || (data.start === data.end && data.start !== "00:00")) throw new Error("Укажи корректные часы. Для полного дня используй 00:00–00:00.");
-  const validTypes = ["stream", "off", "busy", "maybe", "free"];
+  const validTypes = ["stream", "collab", "off", "busy", "maybe", "free"];
   if (!validTypes.includes(data.type)) throw new Error("Неизвестный тип отметки.");
+  const guestNick = data.type === "collab" ? String(data.guestNick || "").trim() : "";
+  if (data.type === "collab") {
+    if (!guestNick || guestNick.length > 80) throw new Error("Укажи ник гостя (не более 80 символов).");
+    const request={date:data.date,start:data.start,end:data.end};
+    if (state.slots.some(e=>e.ownerUid===state.uid && e.id!==form.dataset.id &&
+      !["free","maybe"].includes(e.type) && overlaps(e,request)) ||
+      state.locks.some(e=>[e.fromUid,e.toUid].includes(state.uid) && overlaps(e,request)) ||
+      state.groupCalendar.some(e=>e.participantsUids?.includes(state.uid) && overlaps(e,request)))
+      throw new Error("Это время уже занято. Измени существующий стрим на коллабу или выбери другое время.");
+  }
   const record = {
     ownerUid: state.uid, date: data.date, start: data.start, end: data.end,
-    type: data.type, title: data.type === "stream" ? String(data.title || "").trim().slice(0, 90) : "",
+    type: data.type, title: ["stream","collab"].includes(data.type) ? String(data.title || "").trim().slice(0, 90) : "",
+    guestNick, showGame: data.type === "collab" && data.showGame === "on",
+    showGuest: data.type === "collab" && data.showGuest === "on",
     details: String(data.details || "").trim().slice(0, 500),
-    public: ["stream", "off"].includes(data.type) && data.hidePublic !== "on",
+    public: ["stream", "off", "collab"].includes(data.type) && data.hidePublic !== "on",
     updatedAt: serverTimestamp()
   };
   if (form.dataset.id) await updateDoc(doc(db, "slots", form.dataset.id), record);
@@ -1052,6 +1074,12 @@ document.addEventListener("change", (event) => {
   if (!select) return;
   const form = select.form;
   if (select.value === "wish") { wishModal(); return; }
+  const manual = select.value === "collab";
+  form.querySelectorAll("[data-manual-collab]").forEach(el=>{el.hidden=!manual;});
+  form.elements.guestNick.required=manual;
+  if(manual && form.elements.start.value==="00:00" && form.elements.end.value==="00:00"){
+    form.elements.start.value="20:00";form.elements.end.value="23:00";
+  }
   if (select.value === "off") {
     form.elements.start.value = "00:00";
     form.elements.end.value = "00:00";
