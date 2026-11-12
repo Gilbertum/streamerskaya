@@ -26,12 +26,16 @@ function parseChannel(input) {
   return found?found[1]:null;
 }
 function tagType(type) { return ({stream:"Стрим",off:"Выходной",busy:"Занята",maybe:"Под вопросом",free:"Свободна",collab:"Коллаба",pending:"Ожидает подтверждения"})[type]||"Событие"; }
-function slotTitle(s){return s.type==="stream"?(s.title||"Игра неизвестна"):s.type==="off"?"Выходной":tagType(s.type);}
+function slotTitle(s){return s.type==="stream"?(s.title||"Игра неизвестна"):
+  s.type==="collab"?"Коллаба: "+(s.title||"игра пока неизвестна"):
+  s.type==="off"?"Выходной":tagType(s.type);}
 function counterpart(lock,ownerUid){return ownerUid===lock.fromUid?(lock.toName||"Другой стример"):(lock.fromName||"Другой стример");}
 function detailItem(item, kind, ownerUid) {
   let heading = kind==="slot" ? slotTitle(item) : (item.game||"Игра неизвестна");
   let tag = kind==="slot"?tagType(item.type):(kind==="pending"?"Предложение (не принято)":"Подтверждённый коллаб");
-  const person = kind==="slot"||item.participants?.length?"":'<p class="muted" style="margin:6px 0">С кем: '+h(counterpart(item,ownerUid))+'</p>';
+  const person = kind==="slot" ?
+    (item.type==="collab"&&item.guestNick?'<p class="muted" style="margin:6px 0">С кем: '+h(item.guestNick)+' (вне сайта)</p>':"") :
+    item.participants?.length?"":'<p class="muted" style="margin:6px 0">С кем: '+h(counterpart(item,ownerUid))+'</p>';
   const groupInfo=item.participants?.length?'<p class="tiny-note">Участники: '+h(item.participants.join(", ")) +'</p>':"";
   const note = kind==="slot"&&item.details?'<p style="white-space:pre-wrap">'+h(item.details)+'</p>':"";
   const status = kind==="slot" ? (item.public===false?"Скрыто от зрителей":"") : kind==="pending"?"Ожидает согласия второй стороны":"Подтверждено";
