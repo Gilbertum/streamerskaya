@@ -89,7 +89,7 @@ function modalClose() {
   modal.hidden = true;
   $("modalContent").innerHTML = "";
 }
-function fmtTime(obj) { return obj.start === "00:00" && obj.end === "00:00" ? "Весь день" : h(obj.start) + "–" + h(obj.end) + (obj.end <= obj.start ? " (+1 день)" : ""); }
+function fmtTime(obj) { return obj.start === "00:00" && obj.end === "00:00" ? "Весь день" : h(obj.start) + "–" + h(obj.end) ; }
 function person(id) { return state.members.find((m) => m.id === id); }
 function nameOf(id) { return person(id)?.nick || "Стример"; }
 function profileLinks(member) {
