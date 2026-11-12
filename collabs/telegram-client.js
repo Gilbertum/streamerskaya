@@ -7,8 +7,9 @@ export function telegramClient(firebaseApp) {
   async function invoke(name,data={}) {
     try {return (await httpsCallable(functions,name)(data)).data;}
     catch(error) {
-      if(["functions/not-found","functions/unavailable","functions/internal"].includes(error.code))
+      if(["functions/not-found","functions/unavailable"].includes(error.code))
         throw new Error("Telegram-сервер пока не подключён. Опубликуй Firebase Functions по инструкции в README.");
+      if(error.code==="functions/internal")throw new Error("Telegram-сервер вернул ошибку. Проверь журналы Firebase Functions; токен не присылай.");
       throw new Error(error.message||"Telegram: действие не удалось.");
     }
   }
