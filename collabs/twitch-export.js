@@ -12,6 +12,7 @@ const min=(v)=>Math.round(Number(v));
 export function utcWindow(event){
   if(!isoDate(event.date)||!tm(event.start)||!tm(event.end)||event.start===event.end)return null;
   const start=new Date(event.date+"T"+event.start+":00+03:00");
+  if(start.getTime()<=Date.now()+5*60000)return null;
   let end=new Date(event.date+"T"+event.end+":00+03:00");
   if(end<=start)end=new Date(end.getTime()+86400000);
   const duration=min((end-start)/60000);
@@ -61,7 +62,13 @@ export function buildTwitchExportSources({uid,slots,locks,groups,publicCollabs,p
     if(!publicEvent)continue;
     push("group_"+g.id,"collab",g,publicEvent.game||"Коллаба");
   }
-  return result.sort((a,b)=>a.startUtc.localeCompare(b.startUtc)||a.id.localeCompare(b.id));
+  const winnerByWindow=new Map();
+  // One Twitch segment for the same stream and collaboration time.
+  for(const item of result){
+    const key=item.startUtc+"|"+item.endUtc,old=winnerByWindow.get(key);
+    if(!old || old.type==="collab"&&item.type==="stream")winnerByWindow.set(key,item);
+  }
+  return [...winnerByWindow.values()].sort((a,b)=>a.startUtc.localeCompare(b.startUtc)||a.id.localeCompare(b.id));
 }
 async function twitchRequest(path,headers,options={}){
   const response=await fetch("https://api.twitch.tv/helix/"+path,{
@@ -120,9 +127,15 @@ function intersects(a,b){
 export function buildExportPlan({sources,links,remote}){
   const mapping=new Map(links.map(x=>[x.id,x]));
   const remoteById=new Map(remote.map(x=>[x.id,x]));
-  const entries=[],seen=new Set();
+  const entries=[],reserved=[];
   for(const source of sources){
-    seen.add(source.id);
+    const localConflict=reserved.some(x=>Date.parse(source.startUtc)<Date.parse(x.endUtc) &&
+      Date.parse(x.startUtc)<Date.parse(source.endUtc));
+    if(localConflict){
+      entries.push({...source,mode:"blocked",why:"На сайте есть другое пересекающееся публичное событие."});
+      continue;
+    }
+    reserved.push(source);
     const linked=mapping.get(source.id),remoteLinked=linked?remoteById.get(linked.segmentId):null;
     if(linked && !remoteLinked){
       entries.push({...source,mode:"blocked",why:"Связанный эфир удалён на Twitch. Новое событие не создаётся автоматически."});
