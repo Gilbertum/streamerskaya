@@ -1,22 +1,31 @@
-// Telegram actions are callable Cloud Functions, never direct Bot API calls.
-// There is no bot token in the browser bundle or in Firestore.
+// Browser-to-Cloudflare Worker interface. No bot token or Google credentials here.
 const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
-const {getFunctions,httpsCallable} = await import("https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js");
-export function telegramClient(firebaseApp) {
-  const functions=getFunctions(firebaseApp,"europe-west1");
-  async function invoke(name,data={}) {
-    try {return (await httpsCallable(functions,name)(data)).data;}
-    catch(error) {
-      if(["functions/not-found","functions/unavailable"].includes(error.code))
-        throw new Error("Telegram-сервер пока не подключён. Опубликуй Firebase Functions по инструкции в README.");
-      if(error.code==="functions/internal")throw new Error("Telegram-сервер вернул ошибку. Проверь журналы Firebase Functions; токен не присылай.");
-      throw new Error(error.message||"Telegram: действие не удалось.");
-    }
+const { telegramWorkerUrl } = await import("./telegram-worker-config.js" + moduleTag);
+export function telegramClient(auth){
+  async function invoke(action,fields={}){
+    const endpoint=String(telegramWorkerUrl||"").trim().replace(/\/+$/,"");
+    if(!/^https:\/\/[A-Za-z0-9.-]+$/.test(endpoint))
+      throw new Error("Telegram ещё не подключён: сначала опубликуй Cloudflare Worker и укажи его адрес в telegram-worker-config.js.");
+    const user=auth.currentUser;
+    if(!user)throw new Error("Сначала войди в Collab Room.");
+    const idToken=await user.getIdToken();
+    let response;
+    try{
+      response=await fetch(endpoint+"/api",{
+        method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+idToken},
+        body:JSON.stringify({action,...fields}),cache:"no-store"
+      });
+    }catch(error){throw new Error("Cloudflare Worker недоступен. Проверь адрес, настройки CORS и статус сервиса.");}
+    let data={};
+    try{data=await response.json();}catch{}
+    if(!response.ok)throw new Error(data.error||"Telegram: серверная ошибка "+response.status);
+    return data;
   }
   return {
-    status:()=>invoke("telegramStatus"),
-    connect:()=>invoke("telegramConnect"),
-    channel:(channel)=>invoke("telegramSetChannel",{channel}),
-    post:()=>invoke("telegramPostSchedule")
+    status:()=>invoke("status"),
+    connect:()=>invoke("connect"),
+    channel:(channel)=>invoke("channel",{channel}),
+    post:()=>invoke("post"),
+    notify:(kind,id)=>invoke("notify",{kind,id})
   };
 }

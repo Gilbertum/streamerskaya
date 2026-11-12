@@ -1,0 +1,30 @@
+name: Collab Room Cloudflare Telegram tests
+on:
+  pull_request:
+    paths:
+      - 'collabs/cloudflare-worker/**'
+      - 'collabs/telegram-client.js'
+  push:
+    branches: [main]
+    paths:
+      - 'collabs/cloudflare-worker/**'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax and unit tests (no secrets needed)
+        run: |
+          cd collabs/cloudflare-worker
+          node --check src/index.js
+          node --check src/store.js
+          node --check src/logic.js
+          node --test tests/*.test.mjs
+      - name: Verify Cloudflare bundling without deploying or using secrets
+        run: |
+          cd collabs/cloudflare-worker
+          npm install --no-audit --no-fund
+          npx wrangler deploy --dry-run --outdir=dist
