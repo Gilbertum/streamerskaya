@@ -640,6 +640,7 @@ async function saveCollabVisibility(form) {
   });
   modalClose();
   flashMessage("Видимость коллабы для твоих зрителей обновлена.");
+  queueTwitchAutoPush();
 }
 async function saveEvent(form) {
   const data = Object.fromEntries(new FormData(form).entries());
@@ -1052,6 +1053,7 @@ document.addEventListener("click", async (event) => {
             throw new Error("Выбранное время уже занято у кого-то из участников. Проверь календари.");
           await finalizeGroupWish(db,group,state.uid,index);
           flashMessage("Общий слот подтверждён. Время занято у всех участниц.");
+          queueTwitchAutoPush();
         } else {
           await cancelGroupWish(db,group,state.uid);
           flashMessage("Групповая коллаба отменена у всех участниц.");
@@ -1106,7 +1108,7 @@ document.addEventListener("click", async (event) => {
       const item = state.slots.find((e) => e.id === target.dataset.id && e.ownerUid === state.uid);
       if (!item || !confirm("Удалить событие из расписания?")) return;
       await deleteDoc(doc(db, "slots", item.id)); await publishPublicSchedule();
-      modalClose(); render(); flashMessage("Событие удалено."); return;
+      modalClose(); render(); flashMessage("Событие удалено. Уже опубликованный эфир Twitch не удаляется автоматически."); return;
     }
     if (action === "respond") {
       if (state.busy) return;
