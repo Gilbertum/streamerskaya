@@ -14,7 +14,7 @@ const { telegramClient } = await import("./telegram-client.js" + moduleTag);
 const { startModeratorV3 } = await import("./moderator-v3.js" + moduleTag);
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, getDocs, collection, query, where, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, getDocs, collection, query, where, setDoc, addDoc, updateDoc, deleteDoc, deleteField, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
 const $ = (id) => document.getElementById(id);
 const screen = $("screen");
@@ -769,13 +769,20 @@ async function saveEvent(form) {
   const record = {
     ownerUid: state.uid, date: data.date, start: data.start, end: data.end,
     type: data.type, title: ["stream","collab"].includes(data.type) ? String(data.title || "").trim().slice(0, 90) : "",
-    guestNick, showGame: data.type === "collab" && data.showGame === "on",
-    showGuest: data.type === "collab" && data.showGuest === "on",
+    ...(data.type === "collab" ? {
+      guestNick, showGame: data.showGame === "on", showGuest: data.showGuest === "on"
+    } : {}),
     details: String(data.details || "").trim().slice(0, 500),
     public: ["stream", "off", "collab"].includes(data.type) && data.hidePublic !== "on",
     updatedAt: serverTimestamp()
   };
-  if (form.dataset.id) await updateDoc(doc(db, "slots", form.dataset.id), record);
+  // Keep old stream/off writes compatible with existing Firestore Rules while
+  // the owner is installing the new rules. Remove guest fields when a collab
+  // is changed back to a regular stream/off day.
+  if (form.dataset.id) await updateDoc(doc(db, "slots", form.dataset.id),
+    data.type === "collab" ? record : {
+      ...record, guestNick:deleteField(), showGame:deleteField(), showGuest:deleteField()
+    });
   else await addDoc(collection(db, "slots"), record);
   await publishPublicSchedule();
   state.date = data.date;
