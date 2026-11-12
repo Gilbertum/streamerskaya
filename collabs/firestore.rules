@@ -473,32 +473,22 @@ service cloud.firestore {
         && diaryOwner(groupDoc(groupId),ownerUid);
     }
 
-
-    // Twitch export links are private technical mappings. No OAuth credentials.
+    // Only the authenticated owner reads and writes Twitch segment mappings.
+    // Twitch tokens are never written to Firestore.
     function goodTwitchLink(d, ownerUid, sourceId) {
-      return d.keys().hasAll(['ownerUid','sourceId','segmentId','broadcasterId',
-        'date','start','end','title','updatedAt'])
-        && d.keys().hasOnly(['ownerUid','sourceId','segmentId','broadcasterId',
-        'date','start','end','title','updatedAt'])
+      return d.keys().hasAll(['ownerUid','sourceId','segmentId','broadcasterId','date','start','end','title','updatedAt'])
+        && d.keys().hasOnly(['ownerUid','sourceId','segmentId','broadcasterId','date','start','end','title','updatedAt'])
         && d.ownerUid == ownerUid && d.sourceId == sourceId
         && d.segmentId is string && d.segmentId.size() >= 1 && d.segmentId.size() <= 512
-        && d.broadcasterId is string && d.broadcasterId.matches('^[0-9]{1,24}
-  }
-})
-        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}
-  }
-})
-        && d.start is string && d.start.matches('^([01][0-9]|2[0-3]):[0-5][0-9]
-  }
-})
-        && d.end is string && d.end.matches('^([01][0-9]|2[0-3]):[0-5][0-9]
-  }
-})
+        && d.broadcasterId is string && d.broadcasterId.matches('^[0-9]+$')
+        && d.date is string && d.date.size() == 10
+        && d.start is string && d.start.size() == 5
+        && d.end is string && d.end.size() == 5
         && d.title is string && d.title.size() >= 1 && d.title.size() <= 140
         && d.updatedAt is timestamp;
     }
     match /twitchExportLinks/{ownerUid}/items/{sourceId} {
-      allow read: if member() && me(ownerUid);
+      allow get, list: if member() && me(ownerUid);
       allow create: if member() && me(ownerUid)
         && goodTwitchLink(request.resource.data,ownerUid,sourceId);
       allow update: if member() && me(ownerUid)
