@@ -1,5 +1,6 @@
 import { doc, getDoc, collection, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 import { signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
+import { collabParties } from "./collab-parties.js";
 
 const h = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]);
 function addDays(iso, n) { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0,10); }
@@ -28,7 +29,7 @@ function counterpart(lock,ownerUid){return ownerUid===lock.fromUid?(lock.toName|
 function detailItem(item, kind, ownerUid) {
   let heading = kind==="slot" ? slotTitle(item) : (item.game||"Игра неизвестна");
   let tag = kind==="slot"?tagType(item.type):(kind==="pending"?"Предложение (не принято)":"Подтверждённый коллаб");
-  const person = kind==="slot"?"":'<p class="muted" style="margin:6px 0">С кем: '+h(counterpart(item,ownerUid))+'</p>';
+  const person = kind==="slot"||item.participants?.length?"":'<p class="muted" style="margin:6px 0">С кем: '+h(counterpart(item,ownerUid))+'</p>';
   const groupInfo=item.participants?.length?'<p class="tiny-note">Участники: '+h(item.participants.join(", ")) +'</p>':"";
   const note = kind==="slot"&&item.details?'<p style="white-space:pre-wrap">'+h(item.details)+'</p>':"";
   const status = kind==="slot" ? (item.public===false?"Скрыто от зрителей":"") : kind==="pending"?"Ожидает согласия второй стороны":"Подтверждено";
@@ -91,7 +92,11 @@ export async function startModeratorV3({db,auth,uid,screen,identity,user}){
     return { ...x,group:true,fromUid:x.organizerUid,toUid:uid,fromName:x.organizerName,
       toName:(x.participants||[]).filter(n=>n!==x.organizerName).join(", ")||"Участницы" };
   }
-  function monthLocks(){return [...new Map([...from,...to,...groupDiary.filter(x=>x.status==="confirmed").map(groupLegacy)].map(x=>[x.id,x])).values()];}
+  function monthLocks(){
+    const independent = [...new Map([...from,...to].map(x=>[x.id,x])).values()];
+    // Multiple accepted invitations for one organizer/game/time are ONE booking.
+    return [...collabParties(independent),...groupDiary.filter(x=>x.status==="confirmed").map(groupLegacy)];
+  }
   function monthPending(){return [...pending,...groupDiary.filter(x=>x.status==="collecting").map(groupLegacy)];}
   function render(){
     const [year,mo]=month.split("-").map(Number);
