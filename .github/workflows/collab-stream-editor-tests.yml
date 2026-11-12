@@ -4,6 +4,8 @@ on:
     paths:
       - 'collabs/app.js'
       - 'collabs/twitch-export.js'
+      - 'collabs/manual-collab.js'
+      - 'collabs/firestore.rules'
       - 'collabs/views.js'
       - 'collabs/group-wishes.js'
       - 'collabs/moderator-v3.js'
@@ -15,6 +17,8 @@ on:
     paths:
       - 'collabs/app.js'
       - 'collabs/twitch-export.js'
+      - 'collabs/manual-collab.js'
+      - 'collabs/firestore.rules'
       - 'collabs/tests/**'
 jobs:
   test:
@@ -26,4 +30,9 @@ jobs:
           node-version: '22'
       - name: Validate schedule edit behavior and labels
         run: |
-          node --test collabs/tests/stream-editor.test.mjs
+          node --check collabs/app.js
+          node --check collabs/manual-collab.js
+          node --check collabs/twitch-export.js
+          node --check collabs/streamers-view.js
+          node --check collabs/moderator-v3.js
+          node --test collabs/tests/*.test.mjs

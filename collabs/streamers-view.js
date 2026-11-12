@@ -25,7 +25,7 @@ function typeName(e){
 }
 function description(e){
   if(e.type==="stream")return e.title||"Игра пока неизвестна";
-  if(e.type==="collab")return e.game||"Коллаба";
+  if(e.type==="collab")return e.kind==="slot" ? "Коллаба"+(e.title?": "+e.title:"") : (e.game||"Коллаба");
   return typeName(e);
 }
 export function streamersHtml({members,slots,locks,diary,selectedUid,month,me,manualGuests=[]}){
@@ -78,7 +78,8 @@ export function streamerDayHtml({uid,date,slots,locks,diary,members,manualGuests
   const all=ownDiaryEvents(uid,slots,locks,diary,members,manualGuests).filter(e=>e.date===date).sort((a,b)=>a.start.localeCompare(b.start));
   const rows=all.map(e=>{
     const others=e.kind==="party"?e.participants.join(", ") :
-      e.kind==="group"?(e.participants||[]).join(", "):"";
+      e.kind==="group"?(e.participants||[]).join(", "):
+      e.kind==="slot"&&e.type==="collab"?e.guestNick||"":"";
     return '<div class="mod-detail-full"><span class="tag '+h(e.type)+'">'+typeName(e)+'</span>'+
       '<h3>'+h(description(e))+'</h3><p class="tiny-note">'+time(e)+' МСК'+(others?' · состав: '+h(others):"")+'</p>'+
       (e.kind==="slot"&&e.details?'<p style="white-space:pre-wrap">'+h(e.details)+'</p>':"")+'</div>';
