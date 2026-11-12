@@ -40,7 +40,8 @@ function socials(data) {
 function publicCard(e) {
   if (e.type === "off") return '<div class="community-event off"><strong>Выходной</strong><small>Сегодня отдыхаем ✦</small></div>';
   if (e.type === "collab") return '<div class="community-event collab"><strong>' + h(e.game || "Коллаба") + '</strong><small>' + span(e) + ' МСК' + (e.partner ? ' · с ' + h(e.partner) + (e.someHidden ? ' (остальные скрыты)' : '') : ' · участники скрыты') + '</small></div>';
-  return '<div class="community-event stream"><strong>' + h(e.title || "Неизвестно") + '</strong><small>' + span(e) + ' МСК</small></div>';
+  const boosty = e.type === "boosty";
+  return '<div class="community-event ' + (boosty ? "boosty" : "stream") + '"'><strong>' + h(e.title || "Неизвестно") + '</strong><small>' + (boosty ? "Boosty" : "Twitch") + ' · ' + span(e) + ' МСК</small></div>';
 }
 // Multiple accepted invitations for the same collaboration have separate
 // privacy-safe Firestore markers. Show ONE public entry, never expose a name
@@ -157,7 +158,7 @@ export async function startModeratorView({ db, auth, uid, screen, identity, user
       const onDay = slots.filter((s) => s.date === date);
       const onLocks = locks.filter((l) => l.date === date);
       const previews = [
-        ...onDay.slice(0, 2).map((s) => '<div class="mod-chip ' + h(s.type) + '">' + h(s.type === "off" ? "Выходной" : s.type === "stream" ? (s.title || "Стрим") : s.type === "busy" ? "Недоступна" : s.type === "maybe" ? "Под вопросом" : "Свободна") + '</div>'),
+        ...onDay.slice(0, 2).map((s) => '<div class="mod-chip ' + h(s.type) + '">' + h(s.type === "off" ? "Выходной" : ["stream","boosty"].includes(s.type) ? (s.title || (s.type === "boosty" ? "Boosty" : "Twitch")) : s.type === "busy" ? "Недоступна" : s.type === "maybe" ? "Под вопросом" : "Свободна") + '</div>'),
         ...onLocks.slice(0, 2).map(() => '<div class="mod-chip collab">Коллаба</div>')
       ].join("");
       cells += '<div class="mod-day' + (date.slice(0, 7) !== month ? " outside" : "") + (date === todayMsk() ? " today" : "") + '">' +
@@ -168,8 +169,8 @@ export async function startModeratorView({ db, auth, uid, screen, identity, user
     const detailed = monthLocks.map((l) => '<div class="mod-detail"><span class="tag collab">Коллаба</span>' +
       '<div><strong>' + h(l.game || "Игра не указана") + '</strong><div class="tiny-note">С ' + personLabel(l, uid) + ' · ' + h(readable(l.date)) + ' · ' + span(l) + ' МСК</div></div></div>').join("");
     const schedule = monthEvents.map((s) => '<div class="mod-detail"><span class="tag ' + h(s.type) + '">' +
-      h(({ stream: "Стрим", off: "Выходной", busy: "Занята", maybe: "Под вопросом", free: "Свободна" })[s.type] || "План") +
-      '</span><div><strong>' + h(s.type === "stream" ? (s.title || "Игра неизвестна") : s.type === "off" ? "Выходной" : "Личная отметка") +
+      h(({ stream: "Twitch", boosty: "Boosty", off: "Выходной", busy: "Занята", maybe: "Под вопросом", free: "Свободна" })[s.type] || "План") +
+      '</span><div><strong>' + h(["stream","boosty"].includes(s.type) ? (s.title || "Игра неизвестна") : s.type === "off" ? "Выходной" : "Личная отметка") +
       '</strong><div class="tiny-note">' + h(readable(s.date)) + ' · ' + span(s) + ' МСК</div></div></div>').join("");
     screen.innerHTML = '<section class="moderator-page"><p class="eyebrow">Только для авторизованных модераторов</p>' +
       '<div class="hero"><div><h1>Расписание ' + h(owner.nick || "стримера") + '</h1><p class="sub">Полный месяц и подтверждённые коллабы с играми и участниками. Только просмотр, время по Москве.</p></div>' +
