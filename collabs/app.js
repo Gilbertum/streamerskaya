@@ -1,7 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { twitchPanelHtml, refreshTwitch, startTwitchAuthorization } from "./twitch-panel.js";
 import { streamersHtml, streamerDayHtml } from "./streamers-view.js";
-import { collabParties, canJoinExistingSession, partyForLock } from "./collab-parties.js";
+import { collabParties, canJoinExistingSession, partyForLock, sameCollabSession } from "./collab-parties.js";
 import { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, finalizeGroupWish, cancelGroupWish } from "./group-wishes.js";
 import { startPublicView } from "./views.js";
 import { startModeratorV3 } from "./moderator-v3.js";
@@ -278,6 +278,10 @@ function renderInbox() {
     const inbound = p.toUid === state.uid;
     const someone = inbound ? nameOf(p.fromUid) : nameOf(p.toUid);
     const controls = [];
+    const session = collabParties(state.locks,nameOf).find(party => sameCollabSession(party,p));
+    const teamInfo = session
+      ? '<div class="party-invite-roster"><strong>' + (p.status === "pending" ? "Уже подтвердили: " : "Состав коллабы: ") +
+        '</strong>' + h(session.participants.join(", ")) + '</div>' : "";
     const alternatives = Array.isArray(p.timeOptions) && p.timeOptions.length ? p.timeOptions : [p];
     const duplicated = p.status === "pending" &&
       alternatives.every(slot => duplicateConfirmedInvite(p, slot, p.replacesId || ""));
@@ -300,6 +304,7 @@ function renderInbox() {
         : '<p class="tiny-note" style="margin:9px 0">Предложено ' + choices.length + ' вариантов. Получатель выберет подходящий.</p>')
       : "";
     return '<article class="invite"><div class="invite-top"><div><div class="invite-title">' + (p.replacesId ? '↪ Перенос · ' : '') + h(p.game) + '</div><div class="invite-detail">' + (inbound ? 'От ' : 'Для ') + h(someone) + ' · ' + h(dateLabel(p.date)) + ' · ' + fmtTime(p) + ' · № ' + h(p.id.slice(-6)) + '</div></div><span class="tag status-' + h(p.status) + '">' + h(statusNames[p.status] || p.status) + '</span></div>' +
+      teamInfo +
       (duplicated ? '<div class="notice info">Повтор: такая коллаба с теми же участниками, игрой и временем уже подтверждена. Убрать повтор можно без отмены существующей коллабы.</div>' : "") +
       (conflicting.length ? '<div class="notice bad">Внимание: '+h(conflicting.join("; "))+
         '. Для этого приглашения нужно согласовать новое время, так как существующая бронь остаётся в силе.</div>' : "") +
@@ -648,7 +653,7 @@ async function respond(id, answer, optionIndex = 0) {
   }
   await batch.commit();
   const message = answer === "accepted"
-    ? (oldLock ? "Перенос подтверждён: старое время освобождено, новое сохранено." : "Коллаба подтверждена и добавлена в оба календаря.")
+    ? (oldLock ? "Перенос подтверждён: старое время освобождено, новое сохранено." : "Коллаба подтверждена. Общий состав участников обновится автоматически.")
     : answer === "declined" ? "Приглашение отклонено." : "Коллаба или приглашение отменены.";
   flashMessage(message);
 }
