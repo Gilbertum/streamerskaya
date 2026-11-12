@@ -9,6 +9,7 @@ const { utcWindow, buildTwitchExportSources, buildExportPlan, exportIdentity,
 const { collabParties, canJoinExistingSession, partyForLock, sameCollabSession, partySessionId } = await import("./collab-parties.js" + moduleTag);
 const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, finalizeGroupWish, cancelGroupWish } = await import("./group-wishes.js" + moduleTag);
 const { startPublicView } = await import("./views.js" + moduleTag);
+const { telegramClient } = await import("./telegram-client.js" + moduleTag);
 const { startModeratorV3 } = await import("./moderator-v3.js" + moduleTag);
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
@@ -19,7 +20,7 @@ const screen = $("screen");
 const nav = $("nav");
 const flash = $("flash");
 const modal = $("modal");
-let auth = null, db = null;
+let auth = null, db = null, telegram = null;
 let twitchExportPreview = null, twitchAutoPushRunning = false, twitchAutoPushTimer = null;
 const twitchAutoKey=uid=>"collab-room:auto-export-twitch:v1:"+uid;
 function wantsTwitchAuto(){
@@ -240,7 +241,7 @@ function renderCalendar() {
       '<div style="margin-top:7px"><span class="tag ' + h(item.type) + '">' + typeName(item.type) + '</span>' +
       (!isLock && !isParty && !isGroup && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
   }).join("");
-  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и выходные, а через «Хочу коллабу» отправляй одной заявкой несколько вариантов времени выбранным участницам.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="twitch-export">↗ В Twitch</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
+  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и выходные, а через «Хочу коллабу» отправляй одной заявкой несколько вариантов времени выбранным участницам.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="telegram-publish">✈ Отправить обновлённое расписание в ТГ</button><button class="button button-ghost" data-action="twitch-export">↗ В Twitch</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
     '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
     new Date(year, month - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" }) +
     '</h2><div class="button-row"><button class="button button-ghost small" data-action="previous-month">←</button><button class="button button-ghost small" data-action="current-month">Сегодня</button><button class="button button-ghost small" data-action="next-month">→</button></div></div><div class="calendar-week">' +
@@ -364,7 +365,11 @@ function renderProfile() {
     '<p class="tiny-note">Нужно разрешение channel:manage:schedule. Для разовых эфиров Twitch требует Affiliate или Partner.</p>' +
     '<p class="tiny-note">Опубликуются только события, которые ты уже показываешь зрителям. Выходные и скрытые коллабы не отправляются.</p>' +
     '<p class="tiny-note">Автосинхронизация при входе и сохранении: '+(wantsTwitchAuto()?"включена":"выключена")+
-    '. Работает только пока сайт открыт и Twitch авторизован.</p></section>';
+    '. Работает только пока сайт открыт и Twitch авторизован.</p></section>' +
+    '<section class="panel" style="margin-top:18px"><div class="section-bar"><div><h2>Telegram-бот Collab Room</h2>'+
+    '<p class="tiny-note">Личные приглашения с кнопками и публикация обновлённого расписания в канале.</p></div>'+
+    '<button class="button" data-action="telegram-settings">Подключить Telegram ↗</button></div>'+
+    '<p class="tiny-note">Токен бота хранится только на сервере Firebase Functions. Не вставляй его в профиль или GitHub.</p></section>';
 }
 async function twitchExportSourceSnapshots() {
   const uid=state.uid;
@@ -612,6 +617,41 @@ async function addPartyParticipants(form) {
   await batch.commit();
   modalClose();
   flashMessage("Состав сохранён."+(choices.length?" Приглашения отправлены: "+choices.length+".":""));
+}
+
+async function telegramSettingsModal(){
+  const data=await telegram.status();
+  const bound=!!data.bound;
+  modalOpen('<h2 id="modalTitle">Telegram и Collab Room</h2>'+
+    '<p class="sub">Личный бот присылает новые приглашения. Владелец может опубликовать сообщение о расписании в подключённом канале.</p>'+
+    '<div class="notice info">'+(bound?'Telegram подключён: '+h(data.username||"личный чат") :
+      'Telegram ещё не подключён. Сначала привяжи личный чат к кабинету.')+'</div>'+
+    '<div class="button-row"><button type="button" class="button" data-action="telegram-bind">'+
+      (bound?'Подключить другой Telegram':'Привязать личный Telegram')+'</button></div>'+
+    (bound?'<form data-form="telegram-channel" style="margin-top:20px">'+
+      '<div class="field"><label>Публичный канал, которым ты управляешь (@channel)</label>'+
+      '<input name="channel" placeholder="@mychannel" value="'+h(data.channel||"")+'" required></div>'+
+      '<p class="tiny-note">Добавь бота администратором канала с правом публиковать сообщения. Сайт проверит, что твой Telegram тоже администратор.</p>'+
+      '<div class="form-actions"><button type="submit" class="button">Проверить и подключить канал</button></div></form>' : "")+
+    '<div class="form-actions"><button class="button button-ghost" data-action="close-modal">Закрыть</button></div>');
+}
+async function telegramBind(){
+  const value=await telegram.connect();
+  modalOpen('<h2 id="modalTitle">Привязка личного Telegram</h2>'+
+    '<p class="sub">Открой ссылку бота и нажми Start. Код одноразовый и скоро истечёт.</p>'+
+    '<div class="button-row"><a class="button" target="_blank" rel="noopener noreferrer" href="'+h(value.url)+'">Открыть Telegram-бота ↗</a></div>'+
+    '<p class="tiny-note">Затем вернись на сайт и снова нажми «Подключить Telegram» для проверки статуса.</p>');
+}
+async function telegramChannelSave(form){
+  const channel=String(form.elements.channel.value||"").trim();
+  const value=await telegram.channel(channel);
+  modalClose();
+  flashMessage("Канал "+value.channel+" подключён. Можно публиковать расписание.");
+}
+async function telegramPublish(){
+  if(!confirm("Отправить в твой Telegram-канал сообщение «Расписание обновилось» со ссылкой для зрителей?"))return;
+  const value=await telegram.post();
+  flashMessage("Новое расписание отправлено в канал "+value.channel+".");
 }
 
 function collabPartyModal(lockId) {
@@ -955,6 +995,7 @@ async function boot() {
     const app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
+    telegram = telegramClient(app);
     const match = location.hash.match(/^#\/s\/([A-Za-z0-9_-]{12,128})$/);
     if (match) {
       nav.hidden = true; $("logout").hidden = true;
@@ -1065,6 +1106,9 @@ document.addEventListener("click", async (event) => {
       }));
       return;
     }
+    if (action === "telegram-settings") { await telegramSettingsModal(); return; }
+    if (action === "telegram-bind") { await telegramBind(); return; }
+    if (action === "telegram-publish") { await telegramPublish(); return; }
     if (action === "twitch-export") { await previewTwitchExport(); return; }
     if (action === "authorize-twitch-export") { startTwitchAuthorization("channel:manage:schedule","calendar"); return; }
     if (action === "new-event") { eventModal(); return; }
@@ -1197,6 +1241,7 @@ document.addEventListener("submit", async (event) => {
       state.search = { date: data.date, start: data.start, end: data.end, game: String(data.game || "").trim().slice(0, 90) };
       render();
     } else if (state.authorized && type === "twitch-export-confirm") await commitTwitchExport(form);
+    else if (state.authorized && type === "telegram-channel") await telegramChannelSave(form);
     else if (state.authorized && type === "party-add") await addPartyParticipants(form);
     else if (state.authorized && type === "event") await saveEvent(form);
     else if (state.authorized && type === "collab-visibility") await saveCollabVisibility(form);
