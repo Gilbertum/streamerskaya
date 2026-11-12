@@ -144,8 +144,12 @@ export function buildExportPlan({sources,links,remote}){
     if(remoteLinked?.is_recurring){
       entries.push({...source,mode:"blocked",why:"Связано с повторяющимся событием Twitch. Изменять всю серию нельзя."});continue;
     }
-    const competing=remote.find(x=>x.id!==remoteLinked?.id&&
-      !x.canceled_until&&intersects(source,x));
+    const competing=remote.find(x=>x.id!==remoteLinked?.id &&
+      !x.canceled_until && intersects(source,x) &&
+      !(!linked && !x.is_recurring &&
+        Date.parse(x.start_time)===Date.parse(source.startUtc) &&
+        Date.parse(x.end_time)===Date.parse(source.endUtc) &&
+        String(x.title||"").trim()===source.display));
     if(competing){
       entries.push({...source,mode:"blocked",why:"На Twitch в это время уже есть другой эфир."});continue;
     }
