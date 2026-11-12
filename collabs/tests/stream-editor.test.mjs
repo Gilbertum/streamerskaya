@@ -56,7 +56,7 @@ test("saving a changed Twitch-exported stream updates the original slot ID",asyn
     v=>/^\d{2}:\d{2}$/.test(v),
     state,{},()=>({serverStamp:true}),
     async(ref,record)=>{updateCall={ref,record};},
-    (...segments)=>segments.join("/"),
+    (...segments)=>segments.slice(1).join("/"),
     async()=>{addCalls++;},
     name=>name,
     async()=>{published++;},
