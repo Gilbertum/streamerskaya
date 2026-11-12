@@ -3,9 +3,9 @@ const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
 const { firebaseConfig } = await import("./firebase-config.js" + moduleTag);
 const { twitchPanelHtml, refreshTwitch, startTwitchAuthorization } = await import("./twitch-panel.js" + moduleTag);
 const { streamersHtml, streamerDayHtml } = await import("./streamers-view.js" + moduleTag);
-const { loadTwitchSchedule, prepareTwitchImport, preferredScheduleLink,
-  savedTwitchSchedule, storeTwitchSchedule, twitchPreviewHtml, twitchOwnedId } =
-    await import("./twitch-schedule.js" + moduleTag);
+const { utcWindow, buildTwitchExportSources, buildExportPlan, exportIdentity,
+  getTwitchSegments, exportPreviewHtml, pushSelectedEvents } =
+    await import("./twitch-export.js" + moduleTag);
 const { collabParties, canJoinExistingSession, partyForLock, sameCollabSession } = await import("./collab-parties.js" + moduleTag);
 const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, finalizeGroupWish, cancelGroupWish } = await import("./group-wishes.js" + moduleTag);
 const { startPublicView } = await import("./views.js" + moduleTag);
@@ -20,7 +20,7 @@ const nav = $("nav");
 const flash = $("flash");
 const modal = $("modal");
 let auth = null, db = null;
-let twitchImportPreview = null, twitchAutoImportRunning = false;
+let twitchExportPreview = null, twitchAutoPushRunning = false;
 const state = {
   uid: null, nick: "", member: null, authorized: false, busy: false,
   members: [], slots: [], locks: [], groupCalendar: [], groupsOrganized: [], groupsInvited: [], sent: [], received: [],
@@ -233,7 +233,7 @@ function renderCalendar() {
       '<div style="margin-top:7px"><span class="tag ' + h(item.type) + '">' + typeName(item.type) + '</span>' +
       (!isLock && !isParty && !isGroup && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
   }).join("");
-  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и выходные, а через «Хочу коллабу» отправляй одной заявкой несколько вариантов времени выбранным участницам.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="twitch-schedule">↻ Из Twitch</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
+  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и выходные, а через «Хочу коллабу» отправляй одной заявкой несколько вариантов времени выбранным участницам.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="twitch-export">↗ В Twitch</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
     '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
     new Date(year, month - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" }) +
     '</h2><div class="button-row"><button class="button button-ghost small" data-action="previous-month">←</button><button class="button button-ghost small" data-action="current-month">Сегодня</button><button class="button button-ghost small" data-action="next-month">→</button></div></div><div class="calendar-week">' +
@@ -351,96 +351,87 @@ function renderProfile() {
     '<p class="tiny-note">Создай в Firebase moderatorAccess / ' + h(state.uid) + ' / users / UID_МОДЕРАТОРА с полем enabled = true (boolean). Сама ссылка прав не даёт.</p>' +
     '<h3 style="margin-top:26px">Доступ в комнату</h3><p class="tiny-note">Новых участниц добавляет владелица Firebase: создаёт учётную запись и разрешает UID в коллекции allowedUsers. Публичной регистрации здесь нет.</p>' +
     '<p class="tiny-note">Твой UID для настройки доступа: <code>' + h(state.uid) + '</code></p></section></div>' +
-    '<section class="panel" style="margin-top:18px"><div class="section-bar"><div><h2>Расписание Twitch</h2>' +
-    '<p class="tiny-note">Перенеси запланированные трансляции с Twitch в Collab Room без ручного ввода.</p></div>' +
-    '<button class="button" data-action="twitch-schedule">Настроить импорт ↗</button></div>' +
-    '<p class="tiny-note">Источник: ' + h(preferredScheduleLink(m,state.uid) || "Twitch-канал из профиля") + '</p>' +
-    '<p class="tiny-note">Автообновление при входе: ' + (savedTwitchSchedule(state.uid).automatic ? "включено" : "выключено") +
-    '. Никакие изменения не отправляются обратно на Twitch.</p></section>';
+    '<section class="panel" style="margin-top:18px"><div class="section-bar"><div><h2>Экспорт расписания в Twitch</h2>' +
+    '<p class="tiny-note">Collab Room — источник. Размещай публичные планы в официальном календаре Twitch.</p></div>' +
+    '<button class="button" data-action="twitch-export">Экспортировать в Twitch ↗</button></div>' +
+    '<p class="tiny-note">Нужно разрешение channel:manage:schedule. Для разовых эфиров Twitch требует Affiliate или Partner.</p>' +
+    '<p class="tiny-note">Опубликуются только события, которые ты уже показываешь зрителям. Выходные и скрытые коллабы не отправляются.</p></section>';
 }
-function twitchScheduleModal() {
-  const settings=savedTwitchSchedule(state.uid);
-  twitchImportPreview=null;
-  modalOpen('<h2 id="modalTitle">Импорт расписания Twitch</h2>' +
-    '<p class="sub">Сначала посмотрим, что опубликовано на Twitch. Ничего не будет изменено без подтверждения.</p>' +
-    '<form data-form="twitch-preview"><div class="field"><label>Ссылка на Twitch-календарь (webcal) или ID канала</label>' +
-    '<input name="source" type="text" autocomplete="off" value="' +
-    h(preferredScheduleLink(state.member,state.uid)) + '" placeholder="webcal://api.twitch.tv/helix/schedule/icalendar?broadcaster_id=..."></div>' +
-    '<p class="tiny-note">Можно оставить поле пустым: тогда ID определяется по ссылке Twitch из профиля. Для чтения нужен подключённый Twitch во вкладке «Стримеры».</p>' +
-    '<label class="check-line" style="margin:14px 0"><input name="autoSync" type="checkbox"' +
-    (settings.automatic ? " checked" : "") +
-    '>Автоматически обновлять импортированные стримы при открытии кабинета (с активной Twitch-сессией, не чаще 1 раза в 12 часов)</label>' +
-    '<p class="tiny-note">Только Twitch → Collab Room. Ручные стримы, выходные и коллабы не заменяются. Без открытого кабинета и активной авторизации фоновой синхронизации нет.</p>' +
-    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Отмена</button>' +
-    '<button class="button" type="submit">Проверить расписание</button></div></form>');
+async function twitchExportSourceSnapshots() {
+  const uid=state.uid;
+  const [own,collabs,groups,links]=await Promise.all([
+    getDocs(query(collection(db,"slots"),where("ownerUid","==",uid))),
+    getDocs(collection(db,"publicCollabs",uid,"items")),
+    getDocs(collection(db,"publicGroupCollabs",uid,"items")),
+    getDocs(collection(db,"twitchExportLinks",uid,"items"))
+  ]);
+  const snapshots=[own,collabs,groups,links].map(s=>s.docs.map(d=>({id:d.id,...d.data()})));
+  return {sources:buildTwitchExportSources({
+    uid,slots:snapshots[0],locks:state.locks,groups:state.groupCalendar,
+    publicCollabs:snapshots[1],publicGroups:snapshots[2],today:mskToday()
+  }),links:snapshots[3]};
 }
-async function ownSlotSnapshot() {
-  const snap=await getDocs(query(collection(db,"slots"),where("ownerUid","==",state.uid)));
-  return snap.docs.map(d=>({id:d.id,...d.data()}));
-}
-async function previewTwitchSchedule(form) {
-  const source=String(form.elements.source.value||"").trim();
-  const automatic=form.elements.autoSync.checked;
-  const loaded=await loadTwitchSchedule({source,twitchUrl:state.member?.twitch||"",today:mskToday()});
-  const plan=await prepareTwitchImport({uid:state.uid,ownSlots:await ownSlotSnapshot(),loaded});
-  twitchImportPreview={loaded,plan,automatic};
-  modalOpen('<h2 id="modalTitle">Проверка расписания Twitch</h2>' +
-    '<p class="sub">Twitch-канал: <strong>'+h(loaded.broadcaster||loaded.broadcasterId)+'</strong> · период: ' +
-    h(loaded.today)+' — '+h(loaded.maxDay)+' (МСК)</p>' +
-    '<form data-form="twitch-commit">'+twitchPreviewHtml(plan) +
-    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="twitch-schedule">Назад</button>' +
-    '<button class="button" type="submit">Подтвердить импорт</button></div></form>');
-}
-async function writeTwitchPlan(db,uid,plan,removeMissing) {
-  const changes=plan.newEvents.length+plan.updated.length+(removeMissing?plan.removed.length:0);
-  if(changes>350)throw new Error("Слишком много изменений за один импорт. Данные не изменены.");
-  if(!changes)return 0;
-  const batch=writeBatch(db);
-  for(const item of plan.newEvents) {
-    const {id,...fields}=item;
-    batch.set(doc(db,"slots",id),{...fields,updatedAt:serverTimestamp()});
+async function previewTwitchExport() {
+  if(!state.member?.twitch)
+    throw new Error("Сначала заполни ссылку на свой Twitch-канал в профиле.");
+  const identity=await exportIdentity(state.member.twitch);
+  if(!identity.ready){
+    twitchExportPreview=null;
+    modalOpen('<h2 id="modalTitle">Разрешение на экспорт в Twitch</h2>'+
+      '<div class="notice info">Текущая Twitch-сессия не даёт права публиковать расписание.</div>'+
+      '<p>Для отправки событий Twitch запросит разрешение <code>channel:manage:schedule</code>. '+
+      'Приложение сможет управлять расписанием только твоего Twitch-канала. Оно не получит доступ к паролю.</p>'+
+      '<p class="tiny-note">После подтверждения в Twitch вернись сюда и повторно нажми «↗ В Twitch». Никаких событий до отдельного подтверждения не публикуем.</p>'+
+      '<div class="form-actions"><button class="button button-ghost" data-action="close-modal">Не сейчас</button>'+
+      '<button class="button" data-action="authorize-twitch-export">Разрешить экспорт</button></div>');
+    return;
   }
-  for(const item of plan.updated) {
-    const {id,...fields}=item;
-    batch.update(doc(db,"slots",id),{...fields,updatedAt:serverTimestamp()});
-  }
-  if(removeMissing)for(const item of plan.removed)batch.delete(doc(db,"slots",item.id));
-  await batch.commit();
-  return changes;
+  const {sources,links}=await twitchExportSourceSnapshots();
+  if(links.some(l=>l.broadcasterId!==identity.broadcasterId))
+    throw new Error("Ранее экспортировали в другой Twitch-аккаунт. Переключи Twitch обратно; автоматическое переназначение запрещено.");
+  const remote=await getTwitchSegments(identity);
+  const plan=buildExportPlan({sources,links,remote});
+  twitchExportPreview={identity,plan,sourceFingerprint:JSON.stringify(sources),linkFingerprint:JSON.stringify(links)};
+  modalOpen('<h2 id="modalTitle">Collab Room → Twitch</h2>'+
+    '<p class="sub">Проверь события перед публикацией. Разовые трансляции Twitch разрешает создавать только Affiliate/Partner.</p>'+
+    '<form data-form="twitch-export-confirm">'+exportPreviewHtml(plan,identity.login)+
+    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Отмена</button>'+
+    '<button class="button" type="submit">Опубликовать выбранное на Twitch</button></div></form>');
 }
-async function commitTwitchSchedule(form) {
-  if(!twitchImportPreview)throw new Error("Сначала проверь расписание на Twitch.");
-  const {loaded,plan,automatic}=twitchImportPreview;
-  const fresh=await prepareTwitchImport({uid:state.uid,ownSlots:await ownSlotSnapshot(),loaded});
-  const signature=p=>JSON.stringify([p.newEvents.map(x=>x.id),p.updated.map(x=>x.id),p.removed.map(x=>x.id)]);
-  if(signature(plan)!==signature(fresh))
-    throw new Error("Расписание Collab Room изменилось после предпросмотра. Проверь Twitch ещё раз перед импортом.");
-  const remove=form.elements.removeMissingTwitch?.checked===true;
-  const count=await writeTwitchPlan(db,state.uid,fresh,remove);
-  storeTwitchSchedule(state.uid,{link:fresh.link,automatic,checkedAt:Date.now()});
-  twitchImportPreview=null;
-  if(count)await publishPublicSchedule();
+async function commitTwitchExport(form) {
+  if(!twitchExportPreview)throw new Error("Открой предварительный просмотр перед экспортом.");
+  const {identity,plan,sourceFingerprint,linkFingerprint}=twitchExportPreview;
+  if(state.busy===false)throw new Error("Форма экспорта не активна.");
+  const selected=[...form.querySelectorAll('[name="pushItem"]:checked')].map(e=>e.value);
+  if(!selected.length){modalClose();flashMessage("Нет выбранных событий для экспорта.");return;}
+  const snapshots=await twitchExportSourceSnapshots();
+  if(JSON.stringify(snapshots.sources)!==sourceFingerprint || JSON.stringify(snapshots.links)!==linkFingerprint)
+    throw new Error("Планы в Collab Room изменились после предпросмотра. Открой экспорт повторно.");
+  const refreshed=await getTwitchSegments(identity);
+  const fresh=buildExportPlan({sources:snapshots.sources,links:snapshots.links,remote:refreshed});
+  const sameMode=selected.every(id=>{
+    const before=plan.find(x=>x.id===id),now=fresh.find(x=>x.id===id);
+    return before && now && now.mode===before.mode && now.segmentId===before.segmentId;
+  });
+  if(!sameMode)throw new Error("Календарь Twitch изменился. Открой экспорт повторно, чтобы избежать дублей.");
+  const results=await pushSelectedEvents({identity,plan:fresh,selected,
+    saveLink:async (e,segmentId,broadcasterId)=>{
+      await setDoc(doc(db,"twitchExportLinks",state.uid,"items",e.id),{
+        ownerUid:state.uid,sourceId:e.id,segmentId,broadcasterId,
+        date:e.date,start:e.start,end:e.end,title:e.display,updatedAt:serverTimestamp()
+      });
+    }
+  });
+  twitchExportPreview=null;
   modalClose();
-  render();
-  flashMessage(count ? "Из Twitch синхронизировано "+count+" событий. Ручные планы сохранены." :
-    "Расписание Twitch проверено. Изменений не найдено.");
-}
-async function autoSyncTwitchIfEnabled() {
-  if(twitchAutoImportRunning || !state.authorized || !state.uid)return;
-  const uid=state.uid,settings=savedTwitchSchedule(uid);
-  if(!settings.automatic || !settings.link || Date.now()-settings.checkedAt<12*3600*1000)return;
-  twitchAutoImportRunning=true;
-  try {
-    const loaded=await loadTwitchSchedule({source:settings.link,twitchUrl:state.member?.twitch||"",today:mskToday()});
-    if(uid!==state.uid||!state.authorized)return;
-    const plan=await prepareTwitchImport({uid,ownSlots:await ownSlotSnapshot(),loaded});
-    const count=await writeTwitchPlan(db,uid,plan,false); // Never auto-delete missing Twitch events.
-    storeTwitchSchedule(uid,{...settings,checkedAt:Date.now()});
-    if(count){await publishPublicSchedule();flashMessage("Twitch обновил "+count+" запланированных стримов.");}
-  } catch(error) {
-    // A missing/expired Twitch session should never block Firebase login.
-    console.warn("Twitch schedule auto-sync:",error?.message||error);
-  } finally {twitchAutoImportRunning=false;}
+  const success=results.filter(x=>x.ok).length;
+  const failures=results.filter(x=>!x.ok);
+  if(failures.length){
+    flashMessage("Успешно отправлено: "+success+". Ошибка: "+failures[0].error+
+      ". Проверь календарь Twitch перед повтором.",true);
+    return;
+  }
+  flashMessage("В Twitch опубликовано или обновлено "+success+" трансляций.");
 }
 
 function eventModal(id) {
@@ -840,8 +831,6 @@ async function checkAccess(user) {
   state.nick = state.member.nick || "Участница";
   listen();
   render();
-  // Optional import runs only while this authenticated account is open and Twitch is connected.
-  setTimeout(() => { if(state.uid===user.uid) autoSyncTwitchIfEnabled(); },1500);
 
   // A permission issue when publishing the public schedule must not block private login.
   try {
@@ -965,7 +954,8 @@ document.addEventListener("click", async (event) => {
       }));
       return;
     }
-    if (action === "twitch-schedule") { twitchScheduleModal(); return; }
+    if (action === "twitch-export") { await previewTwitchExport(); return; }
+    if (action === "authorize-twitch-export") { startTwitchAuthorization("channel:manage:schedule","calendar"); return; }
     if (action === "new-event") { eventModal(); return; }
     if (action === "new-wish") { wishModal(); return; }
     if (action === "add-wish-row") {
@@ -1094,8 +1084,7 @@ document.addEventListener("submit", async (event) => {
       if (!isDate(data.date) || !isTime(data.start) || !isTime(data.end) || data.start === data.end) throw new Error("Проверь дату и часы.");
       state.search = { date: data.date, start: data.start, end: data.end, game: String(data.game || "").trim().slice(0, 90) };
       render();
-    } else if (state.authorized && type === "twitch-preview") await previewTwitchSchedule(form);
-    else if (state.authorized && type === "twitch-commit") await commitTwitchSchedule(form);
+    } else if (state.authorized && type === "twitch-export-confirm") await commitTwitchExport(form);
     else if (state.authorized && type === "event") await saveEvent(form);
     else if (state.authorized && type === "collab-visibility") await saveCollabVisibility(form);
     else if (state.authorized && type === "profile") await saveProfile(form);
