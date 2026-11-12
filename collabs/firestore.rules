@@ -36,13 +36,20 @@ service cloud.firestore {
     }
     function goodSlot(d) {
       return d.keys().hasAll(['ownerUid','date','start','end','type','title','public','updatedAt'])
-        && d.keys().hasOnly(['ownerUid','date','start','end','type','title','details','public','updatedAt'])
+        && d.keys().hasOnly(['ownerUid','date','start','end','type','title','details','public','updatedAt',
+          'guestNick','showGame','showGuest'])
         && d.ownerUid is string && d.ownerUid.size() <= 128
         && goodWindow(d)
-        && d.type in ['stream','off','busy','maybe','free']
+        && d.type in ['stream','collab','off','busy','maybe','free']
         && d.title is string && d.title.size() <= 90
         && d.get('details','') is string && d.get('details','').size() <= 500
-        && d.public is bool && (d.type in ['stream','off'] || d.public == false)
+        && d.get('guestNick','') is string && d.get('guestNick','').size() <= 80
+        && d.get('showGame',false) is bool && d.get('showGuest',false) is bool
+        && (d.type != 'collab' || (d.keys().hasAll(['guestNick','showGame','showGuest'])
+          && d.guestNick.size() >= 1))
+        && (d.type == 'collab' || (d.get('guestNick','') == ''
+          && d.get('showGame',false) == false && d.get('showGuest',false) == false))
+        && d.public is bool && (d.type in ['stream','off','collab'] || d.public == false)
         && d.updatedAt is timestamp;
     }
     function validWishChoice(t) {
