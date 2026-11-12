@@ -113,11 +113,11 @@ export async function startPublicView({ db, uid, screen, identity }) {
 }
 function personLabel(lock, ownerUid) {
   const name = lock.fromUid === ownerUid ? lock.toName : lock.fromName;
-  return name ? h(name) : "Участница коллаба";
+  return name ? h(name) : "Участник коллабы";
 }
 function moderatorLogin(screen) {
   screen.innerHTML = '<section class="auth"><div class="panel"><p class="eyebrow">Закрытый доступ</p><h1>Календарь модератора</h1>' +
-    '<p class="sub">Войти можно только через персональный Firebase-аккаунт, которому владелица расписания разрешила доступ.</p>' +
+    '<p class="sub">Войти можно только через персональный Firebase-аккаунт, которому автор расписания разрешила доступ.</p>' +
     '<form data-form="mod-login"><div class="field"><label>Email</label><input type="email" name="email" autocomplete="username" required></div>' +
     '<div class="field"><label>Пароль</label><input type="password" name="password" autocomplete="current-password" required></div>' +
     '<button class="button" type="submit">Войти как модератор</button></form>' +
@@ -131,7 +131,7 @@ export async function startModeratorView({ db, auth, uid, screen, identity, user
   const access = await getDoc(doc(db, "moderatorAccess", uid, "users", user.uid));
   if (!access.exists() || access.data().enabled !== true) {
     screen.innerHTML = '<section class="auth"><div class="panel"><p class="eyebrow">Доступ закрыт</p><h1>Нет разрешения модератора</h1>' +
-      '<p class="sub">Владелица должна разрешить твоему аккаунту просмотр именно этого расписания в Firebase.</p>' +
+      '<p class="sub">Автор должен разрешить твоему аккаунту просмотр именно этого расписания в Firebase.</p>' +
       '<div class="profile-link">UID модератора: ' + h(user.uid) + '</div>' +
       '<button class="button button-ghost" data-mod-logout="true">Выйти из аккаунта</button></div></section>';
     const handler = (e) => { if (e.target.closest("[data-mod-logout]")) signOut(auth); };
