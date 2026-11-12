@@ -1,5 +1,7 @@
-import { twitchPanelHtml, twitchLogin, twitchProfile } from "./twitch-panel.js";
-import { collabParties } from "./collab-parties.js";
+// Load the entire Collab Room module graph from the same fresh revision on every page visit.
+const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
+const { twitchPanelHtml, twitchLogin, twitchProfile } = await import("./twitch-panel.js" + moduleTag);
+const { collabParties } = await import("./collab-parties.js" + moduleTag);
 const h = (value) => String(value ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c]);
 const link = (value) => { try { const u = new URL(String(value || "")); return u.protocol === "https:" ? h(u.href) : ""; } catch { return ""; } };
