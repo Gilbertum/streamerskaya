@@ -260,8 +260,13 @@ async function poll(env){
   for(const g of groups)if(validId(g.id)&&recent(g.createdAt))
     for(const uid of (g.inviteeUids||[]).slice(0,10))if(validId(uid))
       tasks.push({key:"g_"+g.id,uid,id:g.id,kind:"g",message:groupText(g)});
-  // Free Workers have 50 subrequests/invocation: a maximum of 4 notifications.
-  for(const task of tasks.slice(0,4))
+  // Free Workers have 50 external subrequests per invocation.
+  // Rotate pages: already-sent first invitations must NEVER starve newer ones.
+  // A complete cycle of pages is checked across successive Cron invocations.
+  if(!tasks.length)return;
+  const pageSize=4,numberOfPages=Math.ceil(tasks.length/pageSize);
+  const page=Math.floor(Date.now()/180000)%numberOfPages;
+  for(const task of tasks.slice(page*pageSize,(page+1)*pageSize))
     await dispatch(env,task.key,task.uid,task.message,task.kind,task.id);
 }
 async function immediateNotification(env,uid,kind,id){
