@@ -398,7 +398,7 @@ async function previewTwitchExport() {
   const {sources,links}=await twitchExportSourceSnapshots();
   if(links.some(l=>l.broadcasterId!==identity.broadcasterId))
     throw new Error("Ранее экспортировали в другой Twitch-аккаунт. Переключи Twitch обратно; автоматическое переназначение запрещено.");
-  const remote=await getTwitchSegments(identity);
+  const remote=await getTwitchSegments(identity,{sources,links});
   const plan=buildExportPlan({sources,links,remote});
   twitchExportPreview={identity,plan,sourceFingerprint:JSON.stringify(sources),linkFingerprint:JSON.stringify(links)};
   modalOpen('<h2 id="modalTitle">Collab Room → Twitch</h2>'+
@@ -423,7 +423,7 @@ async function commitTwitchExport(form) {
   const snapshots=await twitchExportSourceSnapshots();
   if(JSON.stringify(snapshots.sources)!==sourceFingerprint || JSON.stringify(snapshots.links)!==linkFingerprint)
     throw new Error("Планы в Collab Room изменились после предпросмотра. Открой экспорт повторно.");
-  const refreshed=await getTwitchSegments(identity);
+  const refreshed=await getTwitchSegments(identity,{sources:snapshots.sources,links:snapshots.links});
   const fresh=buildExportPlan({sources:snapshots.sources,links:snapshots.links,remote:refreshed});
   const sameMode=selected.every(id=>{
     const before=plan.find(x=>x.id===id),now=fresh.find(x=>x.id===id);
@@ -467,7 +467,7 @@ async function runTwitchAutoPush(){
     if(!identity.ready||uid!==state.uid)return;
     const {sources,links}=await twitchExportSourceSnapshots();
     if(links.some(l=>l.broadcasterId!==identity.broadcasterId))return;
-    const remote=await getTwitchSegments(identity);
+    const remote=await getTwitchSegments(identity,{sources,links});
     const plan=buildExportPlan({sources,links,remote});
     const selected=plan.filter(e=>e.mode==="create"||e.mode==="update").map(e=>e.id);
     if(!selected.length)return;

@@ -103,22 +103,61 @@ export async function exportIdentity(twitchProfileUrl){
   return {ready:Array.isArray(identity.scopes)&&identity.scopes.includes("channel:manage:schedule"),
     broadcasterId:String(identity.user_id||""),login:expected,headers};
 }
-export async function getTwitchSegments(identity){
-  const segments=[];
-  let cursor="",pages=0;
+// Twitch expands weekly recurring segments indefinitely into the future.
+// Never read the entire schedule: check only the span of this export preview.
+// A linked remote segment outside that span is checked separately by its ID.
+export async function getTwitchSegments(identity,{sources=[],links=[]}={}){
+  if(!sources.length)return [];
+  const valid=sources.filter(x=>Number.isFinite(Date.parse(x.startUtc))&&Number.isFinite(Date.parse(x.endUtc)));
+  if(valid.length!==sources.length)throw new Error("Один из стримов имеет неверную дату. Проверь расписание Collab Room.");
+  const from=Math.min(...valid.map(x=>Date.parse(x.startUtc)));
+  const to=Math.max(...valid.map(x=>Date.parse(x.endUtc)));
+  // A Twitch segment can start the previous day and overlap the first event.
+  const scanStart=new Date(from-24*3600000).toISOString();
+  const remoteById=new Map();
+  let cursor="",pages=0,previousStart=-Infinity,reachedEnd=false;
+  const usedCursors=new Set();
   do{
-    const q=new URLSearchParams({broadcaster_id:identity.broadcasterId,first:"25"});
+    const q=new URLSearchParams({
+      broadcaster_id:identity.broadcasterId,start_time:scanStart,first:"25"
+    });
     if(cursor)q.set("after",cursor);
     const data=await twitchRequest("schedule?"+q.toString(),identity.headers,{missingOk:true});
     if(!data)break;
     const page=data.data?.segments||[];
-    segments.push(...page);
-    cursor=data.pagination?.cursor||"";
+    let beyond=false;
+    for(const event of page){
+      const start=Date.parse(event.start_time),end=Date.parse(event.end_time);
+      if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)
+        throw new Error("Twitch вернул некорректные даты. Экспорт остановлен для защиты от пересечений.");
+      if(start<previousStart)
+        throw new Error("Twitch вернул события не по порядку. Безопасно проверить совпадения не удалось.");
+      previousStart=start;
+      if(start>=to){beyond=true;continue;}
+      if(end>from && event.id)remoteById.set(event.id,event);
+    }
     pages++;
-    if(!page.length||pages>=20)break;
+    cursor=data.pagination?.cursor||"";
+    if(beyond){reachedEnd=true;break;}
+    if(!cursor||page.length===0)break;
+    if(usedCursors.has(cursor))
+      throw new Error("Twitch повторил страницу расписания. Экспорт остановлен во избежание дублей.");
+    usedCursors.add(cursor);
+    if(pages>=40)
+      throw new Error("В выбранном периоде Twitch вернул более 1000 записей. Безопасную проверку завершить не удалось.");
   }while(cursor);
-  if(cursor&&pages>=20)throw new Error("Расписание Twitch слишком большое; безопасно проверить всё не удалось.");
-  return segments;
+  // A mapped segment could have moved outside the current Collab Room window.
+  // Twitch supports fetching up to 100 explicit IDs; it ignores pagination.
+  const relevantIds=new Set(sources.map(x=>links.find(l=>l.id===x.id)?.segmentId).filter(Boolean));
+  const missing=[...relevantIds].filter(id=>!remoteById.has(id));
+  for(let i=0;i<missing.length;i+=100){
+    const q=new URLSearchParams({broadcaster_id:identity.broadcasterId});
+    for(const id of missing.slice(i,i+100))q.append("id",id);
+    const data=await twitchRequest("schedule?"+q.toString(),identity.headers,{missingOk:true});
+    for(const event of data?.data?.segments||[])if(event.id&&relevantIds.has(event.id))
+      remoteById.set(event.id,event);
+  }
+  return [...remoteById.values()];
 }
 function intersects(a,b){
   return Date.parse(a.startUtc)<Date.parse(b.end_time) &&
