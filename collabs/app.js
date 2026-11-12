@@ -779,11 +779,17 @@ async function saveEvent(form) {
   // Keep old stream/off writes compatible with existing Firestore Rules while
   // the owner is installing the new rules. Remove guest fields when a collab
   // is changed back to a regular stream/off day.
-  if (form.dataset.id) await updateDoc(doc(db, "slots", form.dataset.id),
-    data.type === "collab" ? record : {
-      ...record, guestNick:deleteField(), showGame:deleteField(), showGuest:deleteField()
-    });
-  else await addDoc(collection(db, "slots"), record);
+  try {
+    if (form.dataset.id) await updateDoc(doc(db, "slots", form.dataset.id),
+      data.type === "collab" ? record : {
+        ...record, guestNick:deleteField(), showGame:deleteField(), showGuest:deleteField()
+      });
+    else await addDoc(collection(db, "slots"), record);
+  } catch (error) {
+    if (data.type === "collab" && String(error?.code||"").includes("permission-denied"))
+      throw new Error("Ручная коллаба пока запрещена Firestore. Опубликуй обновлённые Firestore Rules из GitHub (collabs/firestore.rules), затем попробуй ещё раз.");
+    throw error;
+  }
   await publishPublicSchedule();
   state.date = data.date;
   state.month = data.date.slice(0, 7);
