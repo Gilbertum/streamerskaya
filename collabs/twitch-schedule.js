@@ -127,7 +127,7 @@ export async function prepareTwitchImport({uid,ownSlots,loaded}) {
     const old=existing.get(id);
     const collision=ownSlots.find(e=>e.id!==id && !twitchOwnedId(uid,e.id) &&
       ((e.type==="off" && e.date===item.date) ||
-      (e.type==="stream" && e.date===item.date && e.start===item.start && e.end===item.end)));
+      (e.type==="stream" && e.date===item.date && e.start===item.start)));
     if (!old && collision) {skipped.push({...item,reason:"Уже есть ручной стрим или выходной"});continue;}
     const data={ownerUid:uid,date:item.date,start:item.start,end:item.end,
       type:"stream",title:item.title,details:old?.details||"",public:old ? old.public!==false : true};
