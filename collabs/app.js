@@ -926,7 +926,7 @@ function cleanup() {
   clearTimeout(twitchAutoPushTimer);
   for (const unsub of state.unsubs) try { unsub(); } catch { /* noop */ }
   state.unsubs = [];
-  state.sent = []; state.received = []; state.slots = []; state.locks = []; state.members = [];
+  state.sent = []; state.received = []; state.slots = []; state.locks = []; state.members = []; state.manualGuests = [];
   state.groupCalendar = []; state.groupsOrganized = []; state.groupsInvited = [];
 }
 function listen() {
