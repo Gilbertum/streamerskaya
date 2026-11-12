@@ -1,4 +1,6 @@
-import { twitchClientId } from "./firebase-config.js";
+// Load the entire Collab Room module graph from the same fresh revision on every page visit.
+const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
+const { twitchClientId } = await import("./firebase-config.js" + moduleTag);
 
 // Twitch Helix: the browser uses an optional user OAuth token (no scopes).
 // No Client Secret is ever stored on GitHub or in Firebase.
