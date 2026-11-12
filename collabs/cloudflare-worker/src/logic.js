@@ -43,7 +43,8 @@ export function conflict({proposal,slots,locks,groups}){
     if(overlaps(s,proposal))return "Время пересекается со стримом или недоступностью";
   }
   for(const lock of locks){
-    if(lock.id===proposal.replacesId || !users.has(lock.fromUid)&&!users.has(lock.toUid))continue;
+    if((proposal.replacesId && lock.id===proposal.replacesId) ||
+      (!users.has(lock.fromUid)&&!users.has(lock.toUid)))continue;
     // An organizer can invite more players into the same already confirmed game.
     if(same(lock,proposal)&&lock.toUid!==proposal.toUid)continue;
     if(overlaps(lock,proposal))return "Время пересекается с подтверждённой коллабой";
