@@ -17,7 +17,14 @@ export function canJoinExistingSession(lock, organizerUid, request) {
     sameCollabSession(lock, { ...request, fromUid: organizerUid });
 }
 
-export function collabParties(locks, nameOf = () => "") {
+export function partySessionId(party) {
+  const s=[party.fromUid||party.organizerUid,party.date,party.start,party.end,
+    String(party.game||"").trim().toLocaleLowerCase("ru-RU")].join("|");
+  let n=2166136261;
+  for(let i=0;i<s.length;i++)n=Math.imul(n^s.charCodeAt(i),16777619);
+  return "session_"+(n>>>0).toString(16).padStart(8,"0");
+}
+export function collabParties(locks, nameOf = () => "", manualGuests = []) {
   const groups = [];
   for (const lock of locks) {
     if (!lock?.fromUid || !lock?.toUid || !lock?.date) continue;
@@ -43,6 +50,10 @@ export function collabParties(locks, nameOf = () => "") {
       const fallback = uid === party.fromUid ? source?.fromName : source?.toName;
       return String(nameOf(uid) || fallback || "Стример");
     });
+    const guestRecord=manualGuests.find(g=>sameCollabSession(
+      {fromUid:g.ownerUid,date:g.date,start:g.start,end:g.end,game:g.game},party));
+    party.manualGuests=Array.isArray(guestRecord?.guestNames)?guestRecord.guestNames:[];
+    party.participants.push(...party.manualGuests.map(name=>name+" (гость)"));
     party.locks.sort((a,b) => a.id.localeCompare(b.id));
     // Deterministic representative, even if Firestore snapshots arrive reordered.
     party.id = party.locks[0].id;
@@ -50,6 +61,6 @@ export function collabParties(locks, nameOf = () => "") {
   return groups;
 }
 
-export function partyForLock(locks, lockId, nameOf) {
-  return collabParties(locks, nameOf).find(p => p.locks.some(l => l.id === lockId)) || null;
+export function partyForLock(locks, lockId, nameOf, guests = []) {
+  return collabParties(locks, nameOf, guests).find(p => p.locks.some(l => l.id === lockId)) || null;
 }

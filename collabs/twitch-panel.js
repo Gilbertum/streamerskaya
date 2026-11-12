@@ -69,7 +69,9 @@ export function twitchPanelHtml(members) {
   const people = participants(members);
   if (!people.length) return '<section class="panel twitch-panel"><div class="section-bar"><h3>Кто сейчас на Twitch</h3></div><p class="tiny-note">Панель появится, когда участницы добавят ссылки Twitch в профили.</p></section>';
   const enabled = twitchEnabled(), connected = hasTwitchToken();
-  const sorted = [...people].sort((a,b) => Number(items.get(b.login)?.online) - Number(items.get(a.login)?.online) || a.nick.localeCompare(b.nick,"ru"));
+  // Only live channels in the compact panel. The directory below lists everyone.
+  const sorted = people.filter(p => items.get(p.login)?.online === true && connected && !errorText && Date.now()-refreshedAt<300000)
+    .sort((a,b)=>a.nick.localeCompare(b.nick,"ru"));
   const channels = sorted.map((p) => {
     const meta = items.get(p.login);
     const known = !!meta && connected && !errorText && Date.now() - refreshedAt < 300000;
@@ -94,7 +96,9 @@ export function twitchPanelHtml(members) {
   const refresh = enabled && connected ? '<button class="button button-ghost small" data-action="refresh-twitch" type="button">↻ Проверить</button>' : '';
   return '<section class="panel twitch-panel"><div class="section-bar"><div><h3>Кто сейчас на Twitch</h3>' +
     '<p class="tiny-note" style="margin:0">Участницы Collab Room с заполненным Twitch-профилем</p></div><div class="button-row">' +
-    connect + refresh + '</div></div><div class="twitch-people">' + channels + '</div><div class="twitch-help">' + note + '</div></section>';
+    connect + refresh + '</div></div><div class="twitch-people">' +
+    (channels || '<div class="twitch-empty"><strong>Пока никто не стримит</strong><span>Когда кто-то из участниц запустит трансляцию, она появится здесь автоматически.</span></div>') +
+    '</div><div class="twitch-help">' + note + '</div></section>';
 }
 export async function refreshTwitch(members, onUpdate, force = false) {
   if (!twitchEnabled() || !hasTwitchToken() || loading) return;

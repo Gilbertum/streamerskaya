@@ -499,6 +499,27 @@ service cloud.firestore {
       allow delete: if member() && me(ownerUid);
     }
 
+    // Manual off-platform guests belong to a confirmed organizer-led session.
+    // Room-only visibility. Guests never receive private data or account rights.
+    function goodCollabGuests(d){
+      return d.keys().hasAll(['ownerUid','date','start','end','game','guestNames','updatedAt'])
+        && d.keys().hasOnly(['ownerUid','date','start','end','game','guestNames','updatedAt'])
+        && d.ownerUid == request.auth.uid
+        && goodDate(d.date) && goodTime(d.start) && goodTime(d.end)
+        && d.start != d.end
+        && d.game is string && d.game.size() >= 1 && d.game.size() <= 90
+        && d.guestNames is list && d.guestNames.size() <= 15
+        && d.guestNames.toSet().size() == d.guestNames.size()
+        && d.updatedAt is timestamp;
+    }
+    match /collabGuests/{sessionId} {
+      allow read: if member();
+      allow create: if member() && goodCollabGuests(request.resource.data);
+      allow update: if member() && resource.data.ownerUid == request.auth.uid
+        && goodCollabGuests(request.resource.data);
+      allow delete: if member() && resource.data.ownerUid == request.auth.uid;
+    }
+
     match /{document=**} { allow read, write: if false; }
   }
 }

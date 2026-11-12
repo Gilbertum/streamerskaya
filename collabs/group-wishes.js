@@ -23,7 +23,7 @@ export function groupInboxHtml(groups,uid){
   if(!groups.length)return "";
   const cards=groups.map(g=>{
     const owner=g.organizerUid===uid;
-    const allReplied=(g.inviteeUids||[]).every(id=>Array.isArray(g.responses?.[id])&&g.responses[id].length>0);
+    const allReplied=(g.inviteeUids||[]).every(id=>Array.isArray(g.responses?.[id]));
     const common=groupCommon(g);
     const confirmed=groupChosen(g);
     const current=Array.isArray(g.responses?.[uid])?g.responses[uid]:[];
@@ -40,7 +40,7 @@ export function groupInboxHtml(groups,uid){
       details='<div class="group-responses">'+(g.inviteeUids||[]).map((id,i)=>{
         const selected=g.responses?.[id];
         return '<div class="group-answer"><strong>'+h(g.inviteeNames?.[i]||"Участница")+'</strong>'+
-          '<small>'+(Array.isArray(selected)?selected.map(n=>h(dateText(g.options[n]?.date||g.options[0].date))+" · "+time(g.options[n]||g.options[0])).join("; "):"Ожидается ответ")+'</small></div>';
+          '<small>'+(Array.isArray(selected)?(selected.length?selected.map(n=>h(dateText(g.options[n]?.date||g.options[0].date))+" · "+time(g.options[n]||g.options[0])).join("; "):"Отклонено в Telegram"):"Ожидается ответ")+'</small></div>';
       }).join("")+'</div>'+
       '<p class="tiny-note">'+(allReplied?'Все ответили.':'Ожидаем ответы всех участниц.')+
         (allReplied&&!common.length?' Нет общего окна: предложи новые даты.':'')+'</p>'+
