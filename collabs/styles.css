@@ -232,3 +232,16 @@
 .modal-window:has(form[data-form="twitch-preview"]),
 .modal-window:has(form[data-form="twitch-commit"]){width:min(710px,100%)}
 @media(max-width:680px){.tw-import-list{grid-template-columns:1fr;max-height:260px}}
+
+
+/* v8: explicit, privacy-aware Collab Room -> Twitch publishing preview */
+.twitch-export-items{display:flex;flex-direction:column;gap:8px;max-height:360px;overflow-y:auto;padding:4px 1px;margin:14px 0}
+.twitch-export-item{display:flex;gap:11px;align-items:flex-start;border:1px solid #514653;
+  background:#262430;border-radius:11px;padding:11px 12px;cursor:pointer}
+.twitch-export-item:has(input:checked){border-color:#cc7a91;background:#342632}
+.twitch-export-item input{flex:0 0 auto;width:17px;height:17px;accent-color:#de657b;margin-top:4px}
+.twitch-export-item span{display:flex;flex-direction:column;gap:3px;min-width:0;overflow-wrap:anywhere}
+.twitch-export-item strong{color:#f1e8ec;font-size:13px}
+.twitch-export-item small{font-size:11px;color:#beb5bf;line-height:1.45}
+.twitch-export-item.is-blocked{opacity:.64;cursor:default}
+.modal-window:has(form[data-form="twitch-export-confirm"]){width:min(780px,100%)}

@@ -48,11 +48,12 @@ export function twitchScheduleHeaders() {
   if (!twitchEnabled() || !token) return null;
   return { "Client-Id": twitchClientId, Authorization: "Bearer " + token };
 }
-export function startTwitchAuthorization() {
+export function startTwitchAuthorization(scopes = "", returnTab = "streamers") {
   if (!twitchEnabled()) throw new Error("Сначала нужно указать Twitch Client ID в firebase-config.js.");
   const bytes = crypto.getRandomValues(new Uint8Array(24));
   const state = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   sessionStorage.setItem(STATE_KEY, state);
+  sessionStorage.setItem("collab-room-twitch-return-v1",returnTab==="calendar"?"calendar":"streamers");
   // Some privacy modes discard sessionStorage during external OAuth redirects.
   // Keep only a short-lived, one-time CSRF state backup (never the access token).
   try { localStorage.setItem("collab-room-twitch-state-backup-v2", JSON.stringify({ state, createdAt: Date.now() })); } catch {}
@@ -60,7 +61,7 @@ export function startTwitchAuthorization() {
   url.searchParams.set("response_type", "token");
   url.searchParams.set("client_id", twitchClientId);
   url.searchParams.set("redirect_uri", new URL("./twitch-callback.html", window.location.href).href);
-  url.searchParams.set("scope", "");
+  url.searchParams.set("scope", scopes);
   url.searchParams.set("state", state);
   window.location.assign(url.href);
 }
