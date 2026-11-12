@@ -25,8 +25,8 @@ function parseChannel(input) {
   const found=s.match(/#\/mod\/([A-Za-z0-9_-]{12,128})$/);
   return found?found[1]:null;
 }
-function tagType(type) { return ({stream:"Стрим",off:"Выходной",busy:"Занята",maybe:"Под вопросом",free:"Свободна",collab:"Коллаба",pending:"Ожидает подтверждения"})[type]||"Событие"; }
-function slotTitle(s){return s.type==="stream"?(s.title||"Игра неизвестна"):
+function tagType(type) { return ({stream:"Twitch",boosty:"Boosty",off:"Выходной",busy:"Занята",maybe:"Под вопросом",free:"Свободна",collab:"Коллаба",pending:"Ожидает подтверждения"})[type]||"Событие"; }
+function slotTitle(s){return ["stream","boosty"].includes(s.type)?(s.title||"Игра неизвестна"):
   s.type==="collab"?"Коллаба: "+(s.title||"игра пока неизвестна"):
   s.type==="off"?"Выходной":tagType(s.type);}
 function counterpart(lock,ownerUid){return ownerUid===lock.fromUid?(lock.toName||"Другой стример"):(lock.fromName||"Другой стример");}
