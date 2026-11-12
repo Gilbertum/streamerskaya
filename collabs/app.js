@@ -6,7 +6,7 @@ const { streamersHtml, streamerDayHtml } = await import("./streamers-view.js" + 
 const { utcWindow, buildTwitchExportSources, buildExportPlan, exportIdentity,
   getTwitchSegments, exportPreviewHtml, pushSelectedEvents } =
     await import("./twitch-export.js" + moduleTag);
-const { collabParties, canJoinExistingSession, partyForLock, sameCollabSession } = await import("./collab-parties.js" + moduleTag);
+const { collabParties, canJoinExistingSession, partyForLock, sameCollabSession, partySessionId } = await import("./collab-parties.js" + moduleTag);
 const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, finalizeGroupWish, cancelGroupWish } = await import("./group-wishes.js" + moduleTag);
 const { startPublicView } = await import("./views.js" + moduleTag);
 const { startModeratorV3 } = await import("./moderator-v3.js" + moduleTag);
@@ -30,7 +30,7 @@ function storeTwitchAuto(enabled){
 }
 const state = {
   uid: null, nick: "", member: null, authorized: false, busy: false,
-  members: [], slots: [], locks: [], groupCalendar: [], groupsOrganized: [], groupsInvited: [], sent: [], received: [],
+  members: [], slots: [], locks: [], manualGuests: [], groupCalendar: [], groupsOrganized: [], groupsInvited: [], sent: [], received: [],
   streamerSelectedUid: null, streamerMonth: mskToday().slice(0,7),
   unsubs: [], tab: "calendar", inboxFilter: "pending",
   date: mskToday(), month: mskToday().slice(0, 7),
@@ -123,7 +123,7 @@ function proposals() {
 function myItems(date) {
   const slots = state.slots.filter(item => item.ownerUid === state.uid && item.date === date)
     .map(item => ({...item,kind:"slot"}));
-  const parties = collabParties(state.locks,nameOf)
+  const parties = collabParties(state.locks,nameOf,state.manualGuests)
     .filter(p => p.participantUids.includes(state.uid) && p.date === date)
     .map(p => ({...p,kind:p.locks.length>1?"party":"lock"}));
   const groups = state.groupCalendar.filter(item=>item.participantsUids?.includes(state.uid)&&item.date===date)
@@ -253,7 +253,7 @@ function renderCalendar() {
 }
 function renderStreamers() {
   screen.innerHTML = streamersHtml({
-    members: [...state.members], slots: state.slots, locks: state.locks,
+    members: [...state.members], slots: state.slots, locks: state.locks, manualGuests: state.manualGuests,
     diary: state.groupCalendar.map(g=>({...g,status:"confirmed"})),
     selectedUid: state.streamerSelectedUid,
     month: state.streamerMonth, me: state.uid
@@ -578,8 +578,44 @@ async function publishPublicSchedule() {
     nick: m.nick || state.nick, twitch: m.twitch || "", telegram: m.telegram || "", youtube: m.youtube || "", tiktok: m.tiktok || "", discord: m.discord || "", events, updatedAt: serverTimestamp()
   });
 }
+async function addPartyParticipants(form) {
+  const party=partyForLock(state.locks,form.dataset.lock,nameOf,state.manualGuests);
+  if(!party||party.fromUid!==state.uid)throw new Error("Менять состав может только организатор.");
+  const choices=[...new Set([...form.querySelectorAll('[name="partyInvite"]:checked')].map(x=>x.value))];
+  const guests=[...new Set(String(form.elements.guestNames.value||"").split(/\r?\n/)
+    .map(x=>x.trim()).filter(Boolean))];
+  if(choices.length>10||guests.length>15||guests.some(x=>x.length>40))
+    throw new Error("Не больше 10 приглашений и 15 гостей с никами до 40 символов.");
+  const batch=writeBatch(db);
+  for(const uid of choices) {
+    const member=person(uid);
+    if(!member||uid===state.uid||party.participantUids.includes(uid))throw new Error("Неверный участник.");
+    const req={date:party.date,start:party.start,end:party.end};
+    if(availability(uid,req)==="busy")throw new Error("У "+member.nick+" занято это время. Приглашения не отправлены.");
+    if(duplicateConfirmedInvite({fromUid:state.uid,toUid:uid,game:party.game},req) ||
+      proposals().some(p=>p.fromUid===state.uid&&p.toUid===uid&&p.status==="pending"&&sameCollabSession(p,party)))
+      throw new Error("У "+member.nick+" уже есть приглашение или подтверждение.");
+    const proposalRef=doc(collection(db,"proposals"));
+    const preview={fromUid:state.uid,toUid:uid,fromName:state.nick,toName:member.nick,
+      date:party.date,start:party.start,end:party.end,game:party.game};
+    batch.set(proposalRef,{...preview,replacesId:"",message:"Приглашение в действующую коллабу",
+      status:"pending",createdAt:serverTimestamp(),respondedAt:null});
+    for(const ownerUid of [state.uid,uid])batch.set(doc(db,"moderatorPending",ownerUid,"items",proposalRef.id),preview);
+  }
+  const existing=state.manualGuests.find(g=>g.id===partySessionId(party));
+  if(!existing || JSON.stringify(existing.guestNames)!==JSON.stringify(guests)) {
+    batch.set(doc(db,"collabGuests",partySessionId(party)),{
+      ownerUid:state.uid,date:party.date,start:party.start,end:party.end,game:party.game,
+      guestNames:guests,updatedAt:serverTimestamp()
+    });
+  }
+  await batch.commit();
+  modalClose();
+  flashMessage("Состав сохранён."+(choices.length?" Приглашения отправлены: "+choices.length+".":""));
+}
+
 function collabPartyModal(lockId) {
-  const party = partyForLock(state.locks, lockId, nameOf);
+  const party = partyForLock(state.locks, lockId, nameOf,state.manualGuests);
   if (!party || !party.participantUids.includes(state.uid)) {
     throw new Error("Коллаба уже отменена или недоступна.");
   }
@@ -605,7 +641,21 @@ function collabPartyModal(lockId) {
     p.date === party.date && p.start === party.start && p.end === party.end &&
     String(p.game || "").trim().toLowerCase() === String(party.game || "").trim().toLowerCase()
   ).map(p=>nameOf(p.toUid)) : [];
-  modalOpen(head + '<div class="party-attendees">' + attendeeRows + '</div>' +
+  const eligible=state.uid===party.fromUid ?
+    state.members.filter(m=>m.id!==state.uid &&
+      !party.participantUids.includes(m.id) &&
+      !proposals().some(p=>p.fromUid===state.uid&&p.toUid===m.id&&p.status==="pending"&&
+        sameCollabSession({...party,toUid:m.id},p))) : [];
+  const edit=state.uid===party.fromUid ? '<form data-form="party-add" data-lock="'+h(party.id)+'">'+
+    '<h3>Добавить участников</h3>'+
+    '<p class="tiny-note">Выбери стримеров из комнаты — им придут новые приглашения, а действующие подтверждения сохранятся.</p>'+
+    '<div class="party-checks">'+eligible.map(m=>'<label class="group-option"><input type="checkbox" name="partyInvite" value="'+h(m.id)+'"> '+
+      h(m.nick)+'</label>').join("")+'</div>'+
+    '<div class="field"><label>Участники вне сайта (каждый ник с новой строки)</label>'+
+    '<textarea name="guestNames" rows="3" placeholder="Например: друг со Steam">'+h(party.manualGuests.join("\n"))+'</textarea></div>'+
+    '<p class="tiny-note">Ручные гости отображаются в закрытом составе команды, но не получают приглашений и не занимают личный календарь.</p>'+
+    '<div class="form-actions"><button class="button" type="submit">Сохранить состав и отправить приглашения</button></div></form>' : "";
+  modalOpen(head + '<div class="party-attendees">' + attendeeRows + '</div>' + edit +
     (pending.length ? '<p class="tiny-note" style="margin-top:15px">Ещё ожидают ответа: ' +
       h([...new Set(pending)].join(", ")) + '</p>' : "") +
     '<p class="tiny-note">Управление отдельным участником не отменяет участие остальных. Состав обновляется после новых подтверждений.</p>' +
@@ -853,6 +903,7 @@ function listen() {
   });
   listenTo(collection(db, "slots"), (items) => { state.slots = items; });
   listenTo(collection(db, "collabLocks"), (items) => { state.locks = items; });
+  listenTo(collection(db, "collabGuests"), items=>{state.manualGuests=items;});
   listenTo(collection(db, "groupCalendar"), items=>{state.groupCalendar=items;});
   listenTo(query(collection(db,"groupWishes"),where("organizerUid","==",state.uid)),items=>{state.groupsOrganized=items;});
   listenTo(query(collection(db,"groupWishes"),where("inviteeUids","array-contains",state.uid)),items=>{state.groupsInvited=items;});
@@ -1008,7 +1059,7 @@ document.addEventListener("click", async (event) => {
     if (action === "streamer-day") {
       modalOpen(streamerDayHtml({
         uid: state.streamerSelectedUid, date: target.dataset.date,
-        slots: state.slots, locks: state.locks,
+        slots: state.slots, locks: state.locks, manualGuests: state.manualGuests,
         diary: state.groupCalendar.map(g=>({...g,status:"confirmed"})),
         members: state.members
       }));
@@ -1081,7 +1132,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "cancel-collab") {
-      const party = partyForLock(state.locks,target.dataset.id,nameOf);
+      const party = partyForLock(state.locks,target.dataset.id,nameOf,state.manualGuests);
       const message = party?.locks.length > 1
         ? "Отменить участие этого стримера? Остальные останутся в общей коллабе."
         : "Отменить подтверждённую коллабу у обоих участников?";
@@ -1146,6 +1197,7 @@ document.addEventListener("submit", async (event) => {
       state.search = { date: data.date, start: data.start, end: data.end, game: String(data.game || "").trim().slice(0, 90) };
       render();
     } else if (state.authorized && type === "twitch-export-confirm") await commitTwitchExport(form);
+    else if (state.authorized && type === "party-add") await addPartyParticipants(form);
     else if (state.authorized && type === "event") await saveEvent(form);
     else if (state.authorized && type === "collab-visibility") await saveCollabVisibility(form);
     else if (state.authorized && type === "profile") await saveProfile(form);
