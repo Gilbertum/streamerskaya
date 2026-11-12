@@ -1,4 +1,5 @@
-import { twitchLogin, twitchScheduleHeaders } from "./twitch-panel.js";
+const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
+const { twitchLogin, twitchScheduleHeaders } = await import("./twitch-panel.js" + moduleTag);
 
 // One-way, read-only Twitch -> Collab Room import. No Twitch manage scopes,
 // Client Secret, proxy or Cloud Functions. The user confirms Firestore writes.
