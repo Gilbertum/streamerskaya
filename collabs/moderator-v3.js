@@ -9,7 +9,7 @@ function addDays(iso, n) { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(
 function monthToday() { const p=new Intl.DateTimeFormat("en-US",{timeZone:"Europe/Moscow",year:"numeric",month:"2-digit"}).formatToParts(new Date()); const get=t=>p.find(x=>x.type===t).value; return get("year")+"-"+get("month"); }
 function todayMsk() { const p=new Intl.DateTimeFormat("en-US",{timeZone:"Europe/Moscow",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()); const get=t=>p.find(x=>x.type===t).value; return get("year")+"-"+get("month")+"-"+get("day"); }
 function fmt(iso, opts = {day:"numeric",month:"long"}) { return new Date(iso + "T12:00:00Z").toLocaleDateString("ru-RU",opts); }
-function hours(x) { if(x.start==="00:00"&&x.end==="00:00")return "Весь день";return (x.start||"??:??")+"–"+(x.end||"??:??")+(x.end<=x.start?" (+1 день)":""); }
+function hours(x) { if(x.start==="00:00"&&x.end==="00:00")return "Весь день";return (x.start||"??:??")+"–"+(x.end||"??:??"); }
 function ownerKey(modUid) { return "collabRoom:modChannels:v3:"+modUid; }
 function knownChannels(modUid) {
   try { const raw=JSON.parse(localStorage.getItem(ownerKey(modUid))||"[]");return Array.isArray(raw)?raw.filter(x=>typeof x==="string"&&/^[A-Za-z0-9_-]{12,128}$/.test(x)).slice(0,30):[]; }
