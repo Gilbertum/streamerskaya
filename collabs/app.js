@@ -1,10 +1,12 @@
-import { firebaseConfig } from "./firebase-config.js";
-import { twitchPanelHtml, refreshTwitch, startTwitchAuthorization } from "./twitch-panel.js";
-import { streamersHtml, streamerDayHtml } from "./streamers-view.js";
-import { collabParties, canJoinExistingSession, partyForLock, sameCollabSession } from "./collab-parties.js";
-import { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, finalizeGroupWish, cancelGroupWish } from "./group-wishes.js";
-import { startPublicView } from "./views.js";
-import { startModeratorV3 } from "./moderator-v3.js";
+// Load the entire Collab Room module graph from the same fresh revision on every page visit.
+const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
+const { firebaseConfig } = await import("./firebase-config.js" + moduleTag);
+const { twitchPanelHtml, refreshTwitch, startTwitchAuthorization } = await import("./twitch-panel.js" + moduleTag);
+const { streamersHtml, streamerDayHtml } = await import("./streamers-view.js" + moduleTag);
+const { collabParties, canJoinExistingSession, partyForLock, sameCollabSession } = await import("./collab-parties.js" + moduleTag);
+const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, finalizeGroupWish, cancelGroupWish } = await import("./group-wishes.js" + moduleTag);
+const { startPublicView } = await import("./views.js" + moduleTag);
+const { startModeratorV3 } = await import("./moderator-v3.js" + moduleTag);
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, getDocs, collection, query, where, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";

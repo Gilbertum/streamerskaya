@@ -1,6 +1,8 @@
+// Load the entire Collab Room module graph from the same fresh revision on every page visit.
+const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
 import { doc, getDoc, collection, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 import { signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
-import { collabParties } from "./collab-parties.js";
+const { collabParties } = await import("./collab-parties.js" + moduleTag);
 
 const h = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]);
 function addDays(iso, n) { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0,10); }

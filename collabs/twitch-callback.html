@@ -4,7 +4,7 @@
 <style>body{background:#14151c;color:#eeeef5;font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;padding:24px}.card{max-width:530px;background:#20212c;border:1px solid #50505b;border-radius:20px;padding:28px;text-align:center}a{color:#ef9dab}small{color:#aeabba;display:block;margin-top:14px}</style></head>
 <body><div class="card"><h1>Подключение Twitch</h1><p id="message">Проверяем ответ Twitch.</p><small id="reason"></small><p><a href="./">Вернуться в Collab Room</a></p></div>
 <script type="module">
-import { twitchClientId } from "./firebase-config.js";
+const { twitchClientId } = await import("./firebase-config.js?load=" + Date.now());
 const message = document.getElementById("message"), reason = document.getElementById("reason");
 const hash = new URLSearchParams(location.hash.slice(1));
 const query = new URLSearchParams(location.search);
