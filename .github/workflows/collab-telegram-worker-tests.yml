@@ -23,3 +23,8 @@ jobs:
           node --check src/store.js
           node --check src/logic.js
           node --test tests/*.test.mjs
+      - name: Verify Cloudflare bundling without deploying or using secrets
+        run: |
+          cd collabs/cloudflare-worker
+          npm install --no-audit --no-fund
+          npx wrangler deploy --dry-run --outdir=dist
