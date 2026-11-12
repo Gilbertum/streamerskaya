@@ -943,7 +943,9 @@ function listen() {
   });
   listenTo(collection(db, "slots"), (items) => { state.slots = items; });
   listenTo(collection(db, "collabLocks"), (items) => { state.locks = items; });
-  listenTo(collection(db, "collabGuests"), items=>{state.manualGuests=items;});
+  state.unsubs.push(onSnapshot(collection(db,"collabGuests"), snapshot=>{
+    state.manualGuests=snapshot.docs.map(d=>({id:d.id,...d.data()}));update();
+  },e=>console.warn("Optional guest roster requires updated Firestore Rules:",e.code||e.message)));
   listenTo(collection(db, "groupCalendar"), items=>{state.groupCalendar=items;});
   listenTo(query(collection(db,"groupWishes"),where("organizerUid","==",state.uid)),items=>{state.groupsOrganized=items;});
   listenTo(query(collection(db,"groupWishes"),where("inviteeUids","array-contains",state.uid)),items=>{state.groupsInvited=items;});
