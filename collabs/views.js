@@ -41,7 +41,7 @@ function publicCard(e) {
   if (e.type === "off") return '<div class="community-event off"><strong>Выходной</strong><small>Сегодня отдыхаем ✦</small></div>';
   if (e.type === "collab") return '<div class="community-event collab"><strong>' + h(e.game || "Коллаба") + '</strong><small>' + span(e) + ' МСК' + (e.partner ? ' · с ' + h(e.partner) + (e.someHidden ? ' (остальные скрыты)' : '') : ' · участники скрыты') + '</small></div>';
   const boosty = e.type === "boosty";
-  return '<div class="community-event ' + (boosty ? "boosty" : "stream") + '"'><strong>' + h(e.title || "Неизвестно") + '</strong><small>' + (boosty ? "Boosty" : "Twitch") + ' · ' + span(e) + ' МСК</small></div>';
+  return '<div class="community-event ' + (boosty ? "boosty" : "stream") + '"><strong>' + h(e.title || "Неизвестно") + '</strong><small>' + (boosty ? "Boosty" : "Twitch") + ' · ' + span(e) + ' МСК</small></div>';
 }
 // Multiple accepted invitations for the same collaboration have separate
 // privacy-safe Firestore markers. Show ONE public entry, never expose a name
