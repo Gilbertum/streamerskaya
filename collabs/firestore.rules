@@ -40,7 +40,7 @@ service cloud.firestore {
           'guestNick','showGame','showGuest'])
         && d.ownerUid is string && d.ownerUid.size() <= 128
         && goodWindow(d)
-        && d.type in ['stream','collab','off','busy','maybe','free']
+        && d.type in ['stream','boosty','collab','off','busy','maybe','free']
         && d.title is string && d.title.size() <= 90
         && d.get('details','') is string && d.get('details','').size() <= 500
         && d.get('guestNick','') is string && d.get('guestNick','').size() <= 80
@@ -49,7 +49,7 @@ service cloud.firestore {
           && d.guestNick.size() >= 1))
         && (d.type == 'collab' || (d.get('guestNick','') == ''
           && d.get('showGame',false) == false && d.get('showGuest',false) == false))
-        && d.public is bool && (d.type in ['stream','off','collab'] || d.public == false)
+        && d.public is bool && (d.type in ['stream','boosty','off','collab'] || d.public == false)
         && d.updatedAt is timestamp;
     }
     function validWishChoice(t) {
