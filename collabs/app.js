@@ -662,8 +662,9 @@ function collabPartyModal(lockId) {
   const head = '<h2 id="modalTitle">Участники коллабы</h2>' +
     '<p class="sub">' + h(party.game || "Игра не указана") + ' · ' +
     h(dateLabel(party.date)) + ' · ' + fmtTime(party) + ' МСК</p>' +
-    '<div class="notice ok">Подтвердили участие: ' + party.participants.length +
-    ' — ' + h(party.participants.join(", ")) + '</div>';
+    '<div class="notice ok">Подтвердили в Collab Room: ' + party.participantUids.length +
+    (party.manualGuests.length ? ' · гостей вручную: ' + party.manualGuests.length : "") +
+    '<p class="tiny-note">Состав: ' + h(party.participants.join(", ")) + '</p></div>';
   const attendeeRows = party.locks.map(lock => {
     const guest = nameOf(lock.toUid);
     const canManage = state.uid === lock.fromUid || state.uid === lock.toUid;
