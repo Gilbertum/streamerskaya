@@ -39,9 +39,31 @@ function socials(data) {
 }
 function publicCard(e) {
   if (e.type === "off") return '<div class="community-event off"><strong>Выходной</strong><small>Сегодня отдыхаем ✦</small></div>';
-  if (e.type === "collab") return '<div class="community-event collab"><strong>' + h(e.game || "Коллаба") + '</strong><small>' + span(e) + ' МСК' + (e.partner ? ' · с ' + h(e.partner) : ' · участники скрыты') + '</small></div>';
+  if (e.type === "collab") return '<div class="community-event collab"><strong>' + h(e.game || "Коллаба") + '</strong><small>' + span(e) + ' МСК' + (e.partner ? ' · с ' + h(e.partner) + (e.someHidden ? ' (остальные скрыты)' : '') : ' · участники скрыты') + '</small></div>';
   return '<div class="community-event stream"><strong>' + h(e.title || "Неизвестно") + '</strong><small>' + span(e) + ' МСК</small></div>';
 }
+// Multiple accepted invitations for the same collaboration have separate
+// privacy-safe Firestore markers. Show ONE public entry, never expose a name
+// from a marker where the owner did not explicitly opt to disclose it.
+function mergePublicCollabs(items) {
+  const merged = new Map();
+  for (const event of items) {
+    const key = [event.date,event.start,event.end,event.type].join("|");
+    if (!merged.has(key)) {
+      merged.set(key,{...event,_partners:event.partner?[event.partner]:[],
+        _hidden:event.partner?0:1});
+      continue;
+    }
+    const row = merged.get(key);
+    if (!row.game && event.game) row.game = event.game;
+    if (event.partner && !row._partners.includes(event.partner)) row._partners.push(event.partner);
+    if (!event.partner) row._hidden += 1;
+  }
+  return [...merged.values()].map(({_partners,_hidden,...event})=>({
+    ...event,partner:_partners.join(", "),someHidden:!!_hidden && !!_partners.length
+  }));
+}
+
 export async function startPublicView({ db, uid, screen, identity }) {
   identity.textContent = "Просмотр для зрителей";
   screen.innerHTML = '<div class="empty">Открываем расписание…</div>';
@@ -56,8 +78,7 @@ export async function startPublicView({ db, uid, screen, identity }) {
   const groupCollabs = groupDoc.docs.map((d)=>({...d.data(),type:"collab"}));
   const events = [
     ...(Array.isArray(data.events) ? data.events.map((e) => ({ ...e, type: e.type || "stream" })) : []),
-    ...collabs,
-    ...groupCollabs
+    ...mergePublicCollabs([...collabs,...groupCollabs])
   ];
   let monday = weekStart(todayMsk());
   const render = () => {
