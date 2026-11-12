@@ -20,7 +20,14 @@ const nav = $("nav");
 const flash = $("flash");
 const modal = $("modal");
 let auth = null, db = null;
-let twitchExportPreview = null, twitchAutoPushRunning = false;
+let twitchExportPreview = null, twitchAutoPushRunning = false, twitchAutoPushTimer = null;
+const twitchAutoKey=uid=>"collab-room:auto-export-twitch:v1:"+uid;
+function wantsTwitchAuto(){
+  try{return localStorage.getItem(twitchAutoKey(state.uid))==="yes";}catch{return false;}
+}
+function storeTwitchAuto(enabled){
+  try{localStorage.setItem(twitchAutoKey(state.uid),enabled?"yes":"no");}catch{}
+}
 const state = {
   uid: null, nick: "", member: null, authorized: false, busy: false,
   members: [], slots: [], locks: [], groupCalendar: [], groupsOrganized: [], groupsInvited: [], sent: [], received: [],
@@ -355,7 +362,9 @@ function renderProfile() {
     '<p class="tiny-note">Collab Room — источник. Размещай публичные планы в официальном календаре Twitch.</p></div>' +
     '<button class="button" data-action="twitch-export">Экспортировать в Twitch ↗</button></div>' +
     '<p class="tiny-note">Нужно разрешение channel:manage:schedule. Для разовых эфиров Twitch требует Affiliate или Partner.</p>' +
-    '<p class="tiny-note">Опубликуются только события, которые ты уже показываешь зрителям. Выходные и скрытые коллабы не отправляются.</p></section>';
+    '<p class="tiny-note">Опубликуются только события, которые ты уже показываешь зрителям. Выходные и скрытые коллабы не отправляются.</p>' +
+    '<p class="tiny-note">Автосинхронизация при входе и сохранении: '+(wantsTwitchAuto()?"включена":"выключена")+
+    '. Работает только пока сайт открыт и Twitch авторизован.</p></section>';
 }
 async function twitchExportSourceSnapshots() {
   const uid=state.uid;
@@ -395,15 +404,22 @@ async function previewTwitchExport() {
   modalOpen('<h2 id="modalTitle">Collab Room → Twitch</h2>'+
     '<p class="sub">Проверь события перед публикацией. Разовые трансляции Twitch разрешает создавать только Affiliate/Partner.</p>'+
     '<form data-form="twitch-export-confirm">'+exportPreviewHtml(plan,identity.login)+
+    '<label class="check-line"><input name="autoExport" type="checkbox"'+(wantsTwitchAuto()?" checked":"")+
+    '>Обновлять все публичные планы на Twitch при входе и сохранении (только с действующей Twitch-авторизацией, без автоматического удаления)</label>'+
     '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Отмена</button>'+
-    '<button class="button" type="submit">Опубликовать выбранное на Twitch</button></div></form>');
+    '<button class="button" type="submit">Экспортировать и сохранить настройки</button></div></form>');
 }
 async function commitTwitchExport(form) {
   if(!twitchExportPreview)throw new Error("Открой предварительный просмотр перед экспортом.");
   const {identity,plan,sourceFingerprint,linkFingerprint}=twitchExportPreview;
   if(state.busy===false)throw new Error("Форма экспорта не активна.");
   const selected=[...form.querySelectorAll('[name="pushItem"]:checked')].map(e=>e.value);
-  if(!selected.length){modalClose();flashMessage("Нет выбранных событий для экспорта.");return;}
+  if(!selected.length){
+    storeTwitchAuto(!!form.elements.autoExport?.checked);
+    twitchExportPreview=null;modalClose();render();
+    flashMessage("Настройки экспорта сохранены.");
+    return;
+  }
   const snapshots=await twitchExportSourceSnapshots();
   if(JSON.stringify(snapshots.sources)!==sourceFingerprint || JSON.stringify(snapshots.links)!==linkFingerprint)
     throw new Error("Планы в Collab Room изменились после предпросмотра. Открой экспорт повторно.");
@@ -431,6 +447,8 @@ async function commitTwitchExport(form) {
       ". Проверь календарь Twitch перед повтором.",true);
     return;
   }
+  storeTwitchAuto(!!form.elements.autoExport?.checked);
+  render();
   flashMessage("В Twitch опубликовано или обновлено "+success+" трансляций.");
 }
 
