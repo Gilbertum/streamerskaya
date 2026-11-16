@@ -54,7 +54,7 @@ export function groupInboxHtml(groups,uid,guestRecords=[]){
     } else if(confirmed){
       details='<div class="notice ok">Подтверждено: '+h(dateText(confirmed.date))+' · '+time(confirmed)+' МСК. Это время занято у всех участников.</div>'+
         '<p class="tiny-note">Гости вне сервиса: '+(guests.length?h(guests.join(", ")):"пока нет")+'</p>'+
-        '<button class="button button-ghost small" data-action="group-details" data-id="'+h(g.id)+'">'+(owner?'Изменить гостей':'Смотреть участников и гостей')+'</button>';
+        '<button class="button button-ghost small" data-action="group-details" data-id="'+h(g.id)+'">'+'Состав и видимость'+'</button>';
     } else {
       details='<span class="tiny-note">Приглашение отменено.</span>';
     }
