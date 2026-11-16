@@ -727,7 +727,7 @@ async function saveGroupGuests(form) {
   modalClose();
   // Refresh the organizer's already-published, opt-in group roster immediately.
   // OnSnapshot may not have delivered the new guest record yet.
-  const guestRecords=[...state.manualGuests.filter(r=>r.id!==guestId),
+  const guestRecords=[...(state.manualGuests||[]).filter(r=>r.id!==guestId),
     {...guestData,id:guestId}];
   try {
     await publishPublicSchedule(null,null,guestRecords);
