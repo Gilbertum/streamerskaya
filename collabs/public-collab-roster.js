@@ -22,7 +22,7 @@ export function projectRoster(preference,{uid,groups=[],parties=[],guestRecords=
       r.start===event.start && r.end===event.end && r.game===event.game);
     if(record && Array.isArray(record.guestNames))otherNames.push(...record.guestNames);
   }else if(kind==="party"){
-    event=parties.find(p=>p.id===sourceId && p.participantUids?.includes(uid));
+    event=parties.find(p=>p.publicRosterId===sourceId && p.participantUids?.includes(uid));
     if(!event)return null;
     otherNames=(event.participantUids||[]).filter(id=>id!==uid)
       .map(id=>members.find(m=>m.id===id)?.nick ||
