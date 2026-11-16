@@ -46,7 +46,8 @@ export function groupInboxHtml(groups,uid){
         (allReplied&&!common.length?' Нет общего окна: предложи новые даты.':'')+'</p>'+
       (common.length?'<div class="field"><label>Общее время (подходит всем)</label><select data-group-final-choice="'+h(g.id)+'">'+
         common.map(o=>'<option value="'+o.index+'">'+h(dateText(o.date))+' · '+time(o)+' МСК</option>').join("")+
-        '</select></div><button class="button" data-action="group-finalize" data-id="'+h(g.id)+'">Подтвердить для всех</button>':'');
+        '</select></div><p class="tiny-note">Перед подтверждением обновим расписания всех участников с сервера Firebase. При занятости появится предупреждение, но подтверждение можно продолжить.</p>'+
+        '<button class="button" data-action="group-finalize" data-id="'+h(g.id)+'">Подтвердить для всех</button>':'');
     } else if(confirmed){
       details='<div class="notice ok">Подтверждено: '+h(dateText(confirmed.date))+' · '+time(confirmed)+' МСК. Это время занято у всех участников.</div>';
     } else {
