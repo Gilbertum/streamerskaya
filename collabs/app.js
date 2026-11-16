@@ -10,6 +10,7 @@ const { collabParties, canJoinExistingSession, partyForLock, sameCollabSession, 
 const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, freshGroupFinalizeSnapshot, finalizeGroupWish, cancelGroupWish } = await import("./group-wishes.js" + moduleTag);
 const { groupBookingConflicts, groupConflictWarning } = await import("./group-confirmation.js" + moduleTag);
 const { groupGuestRecordId, groupGuestNames, parseGroupGuestNames, groupGuestRecord } = await import("./group-guests.js" + moduleTag);
+const { ROSTER_TYPE, rosterPreference, projectRoster, rebuildRosterProjections } = await import("./public-collab-roster.js" + moduleTag);
 const { startPublicView } = await import("./views.js" + moduleTag);
 const { publicSlotEvent } = await import("./manual-collab.js" + moduleTag);
 const { telegramClient } = await import("./telegram-client.js" + moduleTag);
@@ -582,21 +583,45 @@ function inviteModal(uid, replacesId = "") {
     '<div class="field full"><label>Сообщение (необязательно)</label><textarea name="message" maxlength="500" placeholder="Давай попробуем пройти эту игру вместе?"></textarea></div>' +
     '<div class="form-actions full"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Отправить приглашение</button></div></form>');
 }
-async function publishPublicSchedule() {
+async function publishPublicSchedule(preferencesOverride=null, clearParty=null) {
   if (!state.uid) return;
   const own = await getDocs(query(collection(db, "slots"), where("ownerUid", "==", state.uid)));
   const cutoff = addDays(mskToday(), -30);
   const maxDate = addDays(mskToday(), 365);
-  const events = own.docs.map((d) => d.data())
+  const ownEvents = own.docs.map((d) => d.data())
     .filter((e) => ["stream", "boosty", "off", "collab"].includes(e.type) && e.public === true && e.date >= cutoff && e.date <= maxDate)
     .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))
     .slice(0, 300)
     .map(publicSlotEvent);
+  // Existing public opt-ins are retained when the personal schedule is republished.
+  const existing=await getDocFromServer(doc(db,"publicSchedules",state.uid));
+  const previous=existing.exists() && Array.isArray(existing.data().events)?existing.data().events:[];
+  const wanted=preferencesOverride===null ? previous : preferencesOverride;
+  const parties=collabParties(state.locks,nameOf,state.manualGuests)
+    .map(p=>({...p,publicRosterId:partySessionId(p)}));
+  const projections=rebuildRosterProjections(wanted,{
+    uid:state.uid,groups:state.groupCalendar,parties,
+    members:state.members,guestRecords:state.manualGuests
+  }).filter(p=>p?.type===ROSTER_TYPE);
+  const events=[...ownEvents.slice(0,Math.max(0,300-projections.length)),...projections].slice(0,300);
   const memberSnap = await getDoc(doc(db, "members", state.uid));
   const m = memberSnap.data() || {};
-  await setDoc(doc(db, "publicSchedules", state.uid), {
+  const projection={
     nick: m.nick || state.nick, twitch: m.twitch || "", telegram: m.telegram || "", youtube: m.youtube || "", tiktok: m.tiktok || "", discord: m.discord || "", events, updatedAt: serverTimestamp()
-  });
+  };
+  if(clearParty){
+    // Update all of this viewer's old per-invitation disclosures atomically
+    // with the full-roster preference (including an explicit "hide all").
+    const batch=writeBatch(db);
+    batch.set(doc(db,"publicSchedules",state.uid),projection);
+    for(const lock of clearParty.locks||[]){
+      if(![lock.fromUid,lock.toUid].includes(state.uid))continue;
+      batch.set(doc(db,"publicCollabs",state.uid,"items",lock.id),{
+        type:"collab",date:lock.date,start:lock.start,end:lock.end,game:"",partner:""
+      });
+    }
+    await batch.commit();
+  }else await setDoc(doc(db, "publicSchedules", state.uid),projection);
 }
 function groupGuestsModal(groupId) {
   const group=state.groupCalendar.find(g=>g.id===groupId &&
