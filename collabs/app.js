@@ -1210,7 +1210,7 @@ document.addEventListener("click", async (event) => {
               blocker.start+"–"+blocker.end+" МСК)").join("; ");
             const more=conflicts.length>4?" (и ещё "+(conflicts.length-4)+")":"";
             throw new Error("Не удалось подтвердить коллабу: "+examples+more+
-              ". Встреча 21:00–01:00 затрагивает также следующий день — проверь соседние даты.");
+              ". Если встреча идёт через полночь, проверь также события на следующий день.");
           }
           await finalizeGroupWish(db,group,state.uid,index);
           flashMessage("Общий слот подтверждён. Время занято у всех участников.");
