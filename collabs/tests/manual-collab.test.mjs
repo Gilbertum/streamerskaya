@@ -163,7 +163,7 @@ test("manual collab gets an export source with the same stable slot ID",()=>{
 });
 test("Firestore policy enforces collab guest and privacy flag schema",()=>{
  const rules=readFileSync(new URL("../firestore.rules",import.meta.url),"utf8");
- assert.match(rules,/d\.type in \['stream','collab','off'/);
+ assert.match(rules,/d\.type in \['stream','boosty','collab','off'/);
  assert.match(rules,/d\.guestNick\.size\(\) >= 1/);
  assert.match(rules,/d\.get\('showGuest',false\) is bool/);
  assert.match(rules,/d\.get\('showGame',false\) is bool/);
