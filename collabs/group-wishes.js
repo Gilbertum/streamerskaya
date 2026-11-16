@@ -1,5 +1,5 @@
 import {
-  doc, collection, writeBatch, updateDoc, serverTimestamp, FieldPath, getDoc
+  doc, collection, writeBatch, updateDoc, serverTimestamp, FieldPath, getDocFromServer, getDocsFromServer
 } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
 const h = (x) => String(x ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]);
@@ -74,7 +74,7 @@ function validateChoices(options,now) {
     used.add(key);
   }
 }
-export async function createGroupWish({db,form,members,uid,nick,today,busy}){
+export async function createGroupWish({db,form,members,uid,nick,today}){
   const game=String(form.elements.game.value||"").trim().slice(0,90);
   const message=String(form.elements.message.value||"").trim().slice(0,500);
   if(!game)throw new Error("Укажи игру.");
@@ -87,7 +87,6 @@ export async function createGroupWish({db,form,members,uid,nick,today,busy}){
   const invited=[...new Set([...form.querySelectorAll('[name="wishRecipient"]:checked')].map(el=>el.value))];
   if(invited.length<1||invited.length>10)throw new Error("Выбери от одного до десяти участников.");
   if(invited.some(id=>id===uid||!members.some(m=>m.id===id)))throw new Error("Один из выбранных аккаунтов не найден.");
-  if(!options.some(o=>!busy(uid,o)))throw new Error("В твоём календаре заняты все варианты.");
   const inviteeNames=invited.map(id=>members.find(m=>m.id===id).nick||"Стример");
   const ref=doc(collection(db,"groupWishes"));
   const participants=[uid,...invited];
@@ -111,6 +110,27 @@ export async function replyGroupWish(db,group,uid,choices){
   await updateDoc(doc(db,"groupWishes",group.id),
     new FieldPath("responses",uid),selections,"updatedAt",serverTimestamp());
 }
+// Force server reads immediately before a group is finalized; never fall back to cache.
+export async function freshGroupFinalizeSnapshot(db,groupId,uid,index){
+  const [groupSnapshot,slotSnapshot,lockSnapshot,calendarSnapshot,memberSnapshot]=await Promise.all([
+    getDocFromServer(doc(db,"groupWishes",groupId)),
+    getDocsFromServer(collection(db,"slots")),
+    getDocsFromServer(collection(db,"collabLocks")),
+    getDocsFromServer(collection(db,"groupCalendar")),
+    getDocsFromServer(collection(db,"members"))
+  ]);
+  if(!groupSnapshot.exists())throw new Error("Групповая коллаба больше не найдена в Firebase.");
+  const group={id:groupSnapshot.id,...groupSnapshot.data()};
+  if(group.status!=="collecting"||group.organizerUid!==uid)
+    throw new Error("Коллаба уже закрыта или у тебя нет прав организатора. Обнови страницу.");
+  if(!Number.isInteger(index)||!group.options?.[index]||
+     !groupCommon(group).some(o=>o.index===index))
+    throw new Error("Вариант времени изменился или больше не согласован всеми участниками. Обнови приглашения.");
+  const rows=snap=>snap.docs.map(d=>({id:d.id,...d.data()}));
+  return {group,chosen:group.options[index],slots:rows(slotSnapshot),
+    locks:rows(lockSnapshot),groups:rows(calendarSnapshot),members:rows(memberSnapshot)};
+}
+
 export async function finalizeGroupWish(db,group,uid,index){
   if(group.status!=="collecting"||group.organizerUid!==uid)throw new Error("Подтвердить время может только организатор.");
   if(!Number.isInteger(index)||index<0||index>=group.options.length||!groupCommon(group).some(o=>o.index===index))
