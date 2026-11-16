@@ -54,15 +54,15 @@ test("calendar renders a group guest editor and includes manual guests in its ro
 test("confirmed invitations and streamers calendar show the additional guests",()=>{
   assert.match(inbox,/groupInboxHtml\(groups,uid,guestRecords=\[\]\)/);
   assert.match(inbox,/groupGuestNames\(\{\.\.\.g,/);
-  assert.match(inbox,/Изменить гостей/);
+  assert.match(inbox,/Состав и видимость/);
   assert.match(streamer,/groupGuestNames\(e,manualGuests\)/);
   assert.match(streamer,/\(гость\)/);
 });
 test("saving guests checks current confirmed status, owner, times, and Firestore permissions",async()=>{
-  const state={uid:"x",groupCalendar:[group]},timestamp={server:true},saved=[];
-  let read=0,closeCount=0,message="";
+  const state={uid:"x",groupCalendar:[group],manualGuests:[]},timestamp={server:true},saved=[];
+  let read=0,closeCount=0,message="",republished=0;
   const factory=new Function("state","db","parseGroupGuestNames","getDocFromServer","doc","setDoc",
-    "groupGuestRecordId","groupGuestRecord","serverTimestamp","modalClose","flashMessage",
+    "groupGuestRecordId","groupGuestRecord","serverTimestamp","modalClose","flashMessage","publishPublicSchedule",
     extract(app,"async function saveGroupGuests(form) {","async function addPartyParticipants(form) {")+
     "\nreturn saveGroupGuests;");
   let response={exists:()=>true,data:()=>({
@@ -72,10 +72,11 @@ test("saving guests checks current confirmed status, owner, times, and Firestore
   const run=factory(state,{},parseGroupGuestNames,async()=>{read++;return response;},
     (_db,name,id)=>name+"/"+id,async(path,data)=>saved.push({path,data}),
     groupGuestRecordId,groupGuestRecord,()=>timestamp,()=>{closeCount++;},
-    text=>{message=text});
+    text=>{message=text},async(_preferences,_party,guestRecords)=>{republished++;assert.deepEqual(guestRecords[0].guestNames,["Лиса","Кот"]);});
   await run({dataset:{group:group.id},elements:{guestNames:{value:"Лиса\nКот"}}});
   assert.equal(read,1);
   assert.equal(closeCount,1);
+  assert.equal(republished,1);
   assert.equal(saved[0].path,"collabGuests/group_group123");
   assert.deepEqual(saved[0].data.guestNames,["Лиса","Кот"]);
   assert.match(message,/Гости групповой коллабы сохранены/);
@@ -85,7 +86,7 @@ test("saving guests checks current confirmed status, owner, times, and Firestore
 test("only organizer can save, and cancelled group cannot be edited",async()=>{
   let written=0;
   const factory=new Function("state","db","parseGroupGuestNames","getDocFromServer","doc","setDoc",
-    "groupGuestRecordId","groupGuestRecord","serverTimestamp","modalClose","flashMessage",
+    "groupGuestRecordId","groupGuestRecord","serverTimestamp","modalClose","flashMessage","publishPublicSchedule",
     extract(app,"async function saveGroupGuests(form) {","async function addPartyParticipants(form) {")+
     "\nreturn saveGroupGuests;");
   const inputs={dataset:{group:group.id},elements:{guestNames:{value:"Лиса"}}};

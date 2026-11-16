@@ -1,6 +1,8 @@
 import { doc, getDoc, getDocs, collection, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
 import { signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
+const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
+const { ROSTER_TYPE, publicCollabEvents } = await import("./public-collab-roster.js" + moduleTag);
 
 const h = (x) => String(x === undefined || x === null ? "" : x).replace(/[&<>"']/g, (s) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[s]);
@@ -75,12 +77,17 @@ export async function startPublicView({ db, uid, screen, identity }) {
     getDocs(collection(db, "publicGroupCollabs", uid, "items")).catch(() => ({ docs: [] }))
   ]);
   const data = profileDoc.exists() ? profileDoc.data() : { nick: "Стримера", events: [] };
-  const collabs = collabsDoc.docs.map((d) => ({ ...d.data(), type: "collab" }));
-  const groupCollabs = groupDoc.docs.map((d)=>({...d.data(),type:"collab"}));
-  const events = [
-    ...(Array.isArray(data.events) ? data.events.map((e) => ({ ...e, type: e.type || "stream" })) : []),
-    ...mergePublicCollabs([...collabs,...groupCollabs])
-  ];
+  const collabs = collabsDoc.docs.map((d) => ({ id:d.id,...d.data(), type:"collab" }));
+  const groupCollabs = groupDoc.docs.map((d)=>({id:d.id,...d.data(),type:"collab"}));
+  const ownEvents=Array.isArray(data.events)?data.events:[];
+  const projected=publicCollabEvents({
+    slots:ownEvents.filter(e=>e?.type!==ROSTER_TYPE).map(e=>({...e,type:e.type||"stream"})),
+    direct:collabs,groups:groupCollabs,
+    projections:ownEvents.filter(e=>e?.type===ROSTER_TYPE)
+  });
+  // Public roster data is only rendered when its corresponding public marker exists.
+  // Never fetch private Firestore calendars or guest rosters on a public page.
+  const events = [...projected.slots,...mergePublicCollabs(projected.remainingDirect),...projected.events];
   let monday = weekStart(todayMsk());
   const render = () => {
     const end = day(monday, 6);

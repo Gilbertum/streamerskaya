@@ -10,6 +10,7 @@ const { collabParties, canJoinExistingSession, partyForLock, sameCollabSession, 
 const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, freshGroupFinalizeSnapshot, finalizeGroupWish, cancelGroupWish } = await import("./group-wishes.js" + moduleTag);
 const { groupBookingConflicts, groupConflictWarning } = await import("./group-confirmation.js" + moduleTag);
 const { groupGuestRecordId, groupGuestNames, parseGroupGuestNames, groupGuestRecord } = await import("./group-guests.js" + moduleTag);
+const { ROSTER_TYPE, rosterPreference, projectRoster, rebuildRosterProjections } = await import("./public-collab-roster.js" + moduleTag);
 const { startPublicView } = await import("./views.js" + moduleTag);
 const { publicSlotEvent } = await import("./manual-collab.js" + moduleTag);
 const { telegramClient } = await import("./telegram-client.js" + moduleTag);
@@ -241,7 +242,7 @@ function renderCalendar() {
     const controls = isParty
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="party-details" data-id="' + h(item.id) + '">Участники и управление</button></div>'
       : isGroup
-      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="group-details" data-id="' + h(item.id) + '">Участники и гости</button><button class="button button-subtle tiny" data-action="group-cancel" data-id="' + h(item.id) + '">Отменить для всех</button></div>'
+      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="group-details" data-id="' + h(item.id) + '">Состав и зрители</button><button class="button button-subtle tiny" data-action="group-cancel" data-id="' + h(item.id) + '">Отменить для всех</button></div>'
       : isLock
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="visibility-collab" data-id="' + h(item.id) + '">Зрителям</button><button class="button button-ghost tiny" data-action="move-collab" data-id="' + h(item.id) + '">Перенести</button><button class="button button-subtle tiny" data-action="cancel-collab" data-id="' + h(item.id) + '">Отменить</button></div>'
       : '<div class="event-actions"><button class="button button-ghost tiny" data-action="edit-event" data-id="' + h(item.id) + '">Изменить</button><button class="button button-subtle tiny" data-action="delete-event" data-id="' + h(item.id) + '">Удалить</button></div>';
@@ -582,27 +583,102 @@ function inviteModal(uid, replacesId = "") {
     '<div class="field full"><label>Сообщение (необязательно)</label><textarea name="message" maxlength="500" placeholder="Давай попробуем пройти эту игру вместе?"></textarea></div>' +
     '<div class="form-actions full"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Отправить приглашение</button></div></form>');
 }
-async function publishPublicSchedule() {
+async function publishPublicSchedule(preferencesOverride=null, clearParty=null, guestRecordsOverride=null) {
   if (!state.uid) return;
   const own = await getDocs(query(collection(db, "slots"), where("ownerUid", "==", state.uid)));
   const cutoff = addDays(mskToday(), -30);
   const maxDate = addDays(mskToday(), 365);
-  const events = own.docs.map((d) => d.data())
+  const ownEvents = own.docs.map((d) => d.data())
     .filter((e) => ["stream", "boosty", "off", "collab"].includes(e.type) && e.public === true && e.date >= cutoff && e.date <= maxDate)
     .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))
     .slice(0, 300)
     .map(publicSlotEvent);
+  // Existing public opt-ins are retained when the personal schedule is republished.
+  const existing=await getDocFromServer(doc(db,"publicSchedules",state.uid));
+  const previous=existing.exists() && Array.isArray(existing.data().events)?existing.data().events:[];
+  const wanted=preferencesOverride===null ? previous : preferencesOverride;
+  const parties=collabParties(state.locks,nameOf,state.manualGuests)
+    .map(p=>({...p,publicRosterId:partySessionId(p)}));
+  const projections=rebuildRosterProjections(wanted,{
+    uid:state.uid,groups:state.groupCalendar,parties,
+    members:state.members,guestRecords:guestRecordsOverride||state.manualGuests
+  }).filter(p=>p?.type===ROSTER_TYPE);
+  const events=[...ownEvents.slice(0,Math.max(0,300-projections.length)),...projections].slice(0,300);
   const memberSnap = await getDoc(doc(db, "members", state.uid));
   const m = memberSnap.data() || {};
-  await setDoc(doc(db, "publicSchedules", state.uid), {
+  const projection={
     nick: m.nick || state.nick, twitch: m.twitch || "", telegram: m.telegram || "", youtube: m.youtube || "", tiktok: m.tiktok || "", discord: m.discord || "", events, updatedAt: serverTimestamp()
-  });
+  };
+  if(clearParty){
+    // Update all of this viewer's old per-invitation disclosures atomically
+    // with the full-roster preference (including an explicit "hide all").
+    const batch=writeBatch(db);
+    batch.set(doc(db,"publicSchedules",state.uid),projection);
+    for(const lock of clearParty.locks||[]){
+      if(![lock.fromUid,lock.toUid].includes(state.uid))continue;
+      batch.set(doc(db,"publicCollabs",state.uid,"items",lock.id),{
+        type:"collab",date:lock.date,start:lock.start,end:lock.end,game:"",partner:""
+      });
+    }
+    await batch.commit();
+  }else await setDoc(doc(db, "publicSchedules", state.uid),projection);
 }
-function groupGuestsModal(groupId) {
+function collabRosterContext(){
+  return {uid:state.uid,groups:state.groupCalendar,
+    parties:collabParties(state.locks,nameOf,state.manualGuests)
+      .map(p=>({...p,publicRosterId:partySessionId(p)})),
+    guestRecords:state.manualGuests,members:state.members};
+}
+function rosterControls(kind,sourceId,previous){
+  return '<section class="panel-lite" style="margin-top:16px"><h3>Что увидят зрители?</h3>'+
+    '<p class="tiny-note">Эти настройки действуют только на твою публичную страницу. У других участников свои настройки.</p>'+
+    '<form data-form="collab-roster-visibility" data-kind="'+h(kind)+'" data-id="'+h(sourceId)+'">'+
+    '<label class="check-line" style="margin:12px 0"><input type="checkbox" name="showGame"'+
+      (previous?.showGame===true?' checked':'')+'>Показывать название игры</label>'+
+    '<label class="check-line" style="margin:12px 0"><input type="checkbox" name="showParticipants"'+
+      (previous?.showParticipants===true?' checked':'')+'>Показывать весь состав, включая гостей вне сервиса</label>'+
+    '<p class="tiny-note">По умолчанию подробности скрыты. Прежде чем открыть ники для чата, согласуй это с участниками. При выключении обоих пунктов зрители видят только отметку «Коллаба».</p>'+
+    '<div class="form-actions"><button class="button" type="submit">Сохранить видимость для чата</button></div></form></section>';
+}
+async function currentRosterPreference(kind,id){
+  const snapshot=await getDocFromServer(doc(db,"publicSchedules",state.uid));
+  return rosterPreference(snapshot.exists()?snapshot.data().events:[],kind,id);
+}
+async function saveCollabRosterVisibility(form){
+  const kind=form.dataset.kind,sourceId=form.dataset.id;
+  const context=collabRosterContext();
+  const group=kind==="group"?context.groups.find(g=>g.id===sourceId&&
+    g.participantsUids?.includes(state.uid)):null;
+  const party=kind==="party"?context.parties.find(p=>p.publicRosterId===sourceId&&
+    p.participantUids?.includes(state.uid)):null;
+  if(!group&&!party)throw new Error("Коллаба уже отменена или недоступна. Обнови страницу.");
+  if(group){
+    const snapshot=await getDocFromServer(doc(db,"groupWishes",sourceId));
+    if(!snapshot.exists()||snapshot.data().status!=="confirmed")
+      throw new Error("Групповая коллаба больше не подтверждена.");
+  }
+  const showGame=form.elements.showGame.checked;
+  const showParticipants=form.elements.showParticipants.checked;
+  const snapshot=await getDocFromServer(doc(db,"publicSchedules",state.uid));
+  const existing=snapshot.exists()&&Array.isArray(snapshot.data().events)?snapshot.data().events:[];
+  const updated=existing.filter(e=>!(e.type===ROSTER_TYPE&&e.kind===kind&&e.sourceId===sourceId));
+  if(showGame||showParticipants){
+    const projection=projectRoster({type:ROSTER_TYPE,kind,sourceId,showGame,showParticipants},context);
+    if(!projection)throw new Error("Не удалось собрать подтверждённый состав. Обнови страницу.");
+    updated.push(projection);
+  }
+  await publishPublicSchedule(updated,party);
+  modalClose();
+  flashMessage("Видимость коллабы для твоего чата сохранена."+
+    (showParticipants?" Теперь зрители увидят полный состав.":""));
+}
+
+async function groupGuestsModal(groupId) {
   const group=state.groupCalendar.find(g=>g.id===groupId &&
     g.participantsUids?.includes(state.uid));
   if(!group)throw new Error("Подтверждённая групповая коллаба не найдена.");
   const guests=groupGuestNames(group,state.manualGuests);
+  const preference=await currentRosterPreference("group",group.id);
   const owner=group.organizerUid===state.uid;
   const members=(group.participants||[]).map(n=>
     '<div class="party-attendee"><div><strong>'+h(n)+'</strong>'+
@@ -624,7 +700,8 @@ function groupGuestsModal(groupId) {
     '<div class="notice ok">Подтверждённые участники: '+(group.participants||[]).length+
     ' · гостей вне сервиса: '+guests.length+'</div>'+
     '<div class="party-attendees">'+members+others+'</div>'+
-    editor+'<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button></div>');
+    editor+rosterControls("group",group.id,preference)+
+    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button></div>');
 }
 async function saveGroupGuests(form) {
   const group=state.groupCalendar.find(g=>g.id===form.dataset.group &&
@@ -644,10 +721,21 @@ async function saveGroupGuests(form) {
     selected.start!==group.start || selected.end!==group.end ||
     current.data().game!==group.game)
     throw new Error("Данные коллабы изменились. Обнови страницу.");
-  await setDoc(doc(db,"collabGuests",groupGuestRecordId(group.id)),
-    groupGuestRecord(group,guests,serverTimestamp()));
+  const guestId=groupGuestRecordId(group.id);
+  const guestData=groupGuestRecord(group,guests,serverTimestamp());
+  await setDoc(doc(db,"collabGuests",guestId),guestData);
   modalClose();
-  flashMessage("Гости групповой коллабы сохранены: "+guests.length+".");
+  // Refresh the organizer's already-published, opt-in group roster immediately.
+  // OnSnapshot may not have delivered the new guest record yet.
+  const guestRecords=[...(state.manualGuests||[]).filter(r=>r.id!==guestId),
+    {...guestData,id:guestId}];
+  try {
+    await publishPublicSchedule(null,null,guestRecords);
+    flashMessage("Гости групповой коллабы сохранены: "+guests.length+".");
+  }catch(error){
+    console.warn("Не удалось обновить опубликованный состав:",error);
+    flashMessage("Гости сохранены, но публикация состава не обновилась. Нажми «Обновить» в календаре.",true);
+  }
 }
 
 async function addPartyParticipants(form) {
@@ -725,11 +813,13 @@ async function telegramPublish(){
   flashMessage("Новое расписание отправлено в канал "+value.channel+".");
 }
 
-function collabPartyModal(lockId) {
+async function collabPartyModal(lockId) {
   const party = partyForLock(state.locks, lockId, nameOf,state.manualGuests);
   if (!party || !party.participantUids.includes(state.uid)) {
     throw new Error("Коллаба уже отменена или недоступна.");
   }
+  const publicId=partySessionId(party);
+  const preference=await currentRosterPreference("party",publicId);
   const head = '<h2 id="modalTitle">Участники коллабы</h2>' +
     '<p class="sub">' + h(party.game || "Игра не указана") + ' · ' +
     h(dateLabel(party.date)) + ' · ' + fmtTime(party) + ' МСК</p>' +
@@ -771,6 +861,7 @@ function collabPartyModal(lockId) {
     (pending.length ? '<p class="tiny-note" style="margin-top:15px">Ещё ожидают ответа: ' +
       h([...new Set(pending)].join(", ")) + '</p>' : "") +
     '<p class="tiny-note">Управление отдельным участником не отменяет участие остальных. Состав обновляется после новых подтверждений.</p>' +
+    rosterControls("party",publicId,preference)+
     '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button></div>');
 }
 async function collabVisibilityModal(id) {
@@ -1278,8 +1369,8 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (action === "edit-event") { eventModal(target.dataset.id); return; }
-    if (action === "party-details") { collabPartyModal(target.dataset.id); return; }
-    if (action === "group-details") { groupGuestsModal(target.dataset.id); return; }
+    if (action === "party-details") { await collabPartyModal(target.dataset.id); return; }
+    if (action === "group-details") { await groupGuestsModal(target.dataset.id); return; }
     if (action === "move-collab") {
       const lock = state.locks.find((x) => x.id === target.dataset.id && [x.fromUid, x.toUid].includes(state.uid));
       if (!lock) throw new Error("Коллаба уже недоступна.");
@@ -1358,6 +1449,7 @@ document.addEventListener("submit", async (event) => {
     else if (state.authorized && type === "group-guests") await saveGroupGuests(form);
     else if (state.authorized && type === "event") await saveEvent(form);
     else if (state.authorized && type === "collab-visibility") await saveCollabVisibility(form);
+    else if (state.authorized && type === "collab-roster-visibility") await saveCollabRosterVisibility(form);
     else if (state.authorized && type === "profile") await saveProfile(form);
     else if (state.authorized && type === "invite") await sendInvite(form);
     else if (state.authorized && type === "wish") await sendWish(form);
