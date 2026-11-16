@@ -242,7 +242,7 @@ function renderCalendar() {
     const controls = isParty
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="party-details" data-id="' + h(item.id) + '">Участники и управление</button></div>'
       : isGroup
-      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="group-details" data-id="' + h(item.id) + '">Участники и гости</button><button class="button button-subtle tiny" data-action="group-cancel" data-id="' + h(item.id) + '">Отменить для всех</button></div>'
+      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="group-details" data-id="' + h(item.id) + '">Состав и зрители</button><button class="button button-subtle tiny" data-action="group-cancel" data-id="' + h(item.id) + '">Отменить для всех</button></div>'
       : isLock
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="visibility-collab" data-id="' + h(item.id) + '">Зрителям</button><button class="button button-ghost tiny" data-action="move-collab" data-id="' + h(item.id) + '">Перенести</button><button class="button button-subtle tiny" data-action="cancel-collab" data-id="' + h(item.id) + '">Отменить</button></div>'
       : '<div class="event-actions"><button class="button button-ghost tiny" data-action="edit-event" data-id="' + h(item.id) + '">Изменить</button><button class="button button-subtle tiny" data-action="delete-event" data-id="' + h(item.id) + '">Удалить</button></div>';
