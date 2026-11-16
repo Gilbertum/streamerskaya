@@ -583,7 +583,7 @@ function inviteModal(uid, replacesId = "") {
     '<div class="field full"><label>Сообщение (необязательно)</label><textarea name="message" maxlength="500" placeholder="Давай попробуем пройти эту игру вместе?"></textarea></div>' +
     '<div class="form-actions full"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Отправить приглашение</button></div></form>');
 }
-async function publishPublicSchedule(preferencesOverride=null, clearParty=null) {
+async function publishPublicSchedule(preferencesOverride=null, clearParty=null, guestRecordsOverride=null) {
   if (!state.uid) return;
   const own = await getDocs(query(collection(db, "slots"), where("ownerUid", "==", state.uid)));
   const cutoff = addDays(mskToday(), -30);
@@ -601,7 +601,7 @@ async function publishPublicSchedule(preferencesOverride=null, clearParty=null) 
     .map(p=>({...p,publicRosterId:partySessionId(p)}));
   const projections=rebuildRosterProjections(wanted,{
     uid:state.uid,groups:state.groupCalendar,parties,
-    members:state.members,guestRecords:state.manualGuests
+    members:state.members,guestRecords:guestRecordsOverride||state.manualGuests
   }).filter(p=>p?.type===ROSTER_TYPE);
   const events=[...ownEvents.slice(0,Math.max(0,300-projections.length)),...projections].slice(0,300);
   const memberSnap = await getDoc(doc(db, "members", state.uid));
@@ -721,10 +721,21 @@ async function saveGroupGuests(form) {
     selected.start!==group.start || selected.end!==group.end ||
     current.data().game!==group.game)
     throw new Error("Данные коллабы изменились. Обнови страницу.");
-  await setDoc(doc(db,"collabGuests",groupGuestRecordId(group.id)),
-    groupGuestRecord(group,guests,serverTimestamp()));
+  const guestId=groupGuestRecordId(group.id);
+  const guestData=groupGuestRecord(group,guests,serverTimestamp());
+  await setDoc(doc(db,"collabGuests",guestId),guestData);
   modalClose();
-  flashMessage("Гости групповой коллабы сохранены: "+guests.length+".");
+  // Refresh the organizer's already-published, opt-in group roster immediately.
+  // OnSnapshot may not have delivered the new guest record yet.
+  const guestRecords=[...state.manualGuests.filter(r=>r.id!==guestId),
+    {...guestData,id:guestId}];
+  try {
+    await publishPublicSchedule(null,null,guestRecords);
+    flashMessage("Гости групповой коллабы сохранены: "+guests.length+".");
+  }catch(error){
+    console.warn("Не удалось обновить опубликованный состав:",error);
+    flashMessage("Гости сохранены, но публикация состава не обновилась. Нажми «Обновить» в календаре.",true);
+  }
 }
 
 async function addPartyParticipants(form) {
