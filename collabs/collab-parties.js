@@ -50,7 +50,7 @@ export function collabParties(locks, nameOf = () => "", manualGuests = []) {
       const fallback = uid === party.fromUid ? source?.fromName : source?.toName;
       return String(nameOf(uid) || fallback || "Стример");
     });
-    const guestRecord=manualGuests.find(g=>sameCollabSession(
+    const guestRecord=manualGuests.find(g=>g.id===partySessionId(party) && sameCollabSession(
       {fromUid:g.ownerUid,date:g.date,start:g.start,end:g.end,game:g.game},party));
     party.manualGuests=Array.isArray(guestRecord?.guestNames)?guestRecord.guestNames:[];
     party.participants.push(...party.manualGuests.map(name=>name+" (гость)"));
