@@ -9,13 +9,14 @@ const { utcWindow, buildTwitchExportSources, buildExportPlan, exportIdentity,
 const { collabParties, canJoinExistingSession, partyForLock, sameCollabSession, partySessionId } = await import("./collab-parties.js" + moduleTag);
 const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, freshGroupFinalizeSnapshot, finalizeGroupWish, cancelGroupWish } = await import("./group-wishes.js" + moduleTag);
 const { groupBookingConflicts, groupConflictWarning } = await import("./group-confirmation.js" + moduleTag);
+const { groupGuestRecordId, groupGuestNames, parseGroupGuestNames, groupGuestRecord } = await import("./group-guests.js" + moduleTag);
 const { startPublicView } = await import("./views.js" + moduleTag);
 const { publicSlotEvent } = await import("./manual-collab.js" + moduleTag);
 const { telegramClient } = await import("./telegram-client.js" + moduleTag);
 const { startModeratorV3 } = await import("./moderator-v3.js" + moduleTag);
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, getDocs, collection, query, where, setDoc, addDoc, updateDoc, deleteDoc, deleteField, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, getDocFromServer, getDocs, collection, query, where, setDoc, addDoc, updateDoc, deleteDoc, deleteField, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
 const $ = (id) => document.getElementById(id);
 const screen = $("screen");
@@ -130,7 +131,7 @@ function myItems(date) {
     .filter(p => p.participantUids.includes(state.uid) && p.date === date)
     .map(p => ({...p,kind:"party"}));
   const groups = state.groupCalendar.filter(item=>item.participantsUids?.includes(state.uid)&&item.date===date)
-    .map(item=>({...item,type:"collab",kind:"group"}));
+    .map(item=>({...item,type:"collab",kind:"group",manualGuests:groupGuestNames(item,state.manualGuests)}));
   return [...slots,...parties,...groups].sort((a,b)=>a.start.localeCompare(b.start));
 }
 function availability(memberId, request, ignoreLockId = "", joining = null) {
@@ -233,14 +234,14 @@ function renderCalendar() {
     const title = isLock || isParty || isGroup ? ((isGroup ? "Групповая коллаба: " : "Коллаба: ") + (item.game||"Без названия"))
       : (["stream","boosty"].includes(item.type) ? (item.title || "Без названия")
         : item.type === "collab" ? "Коллаба: "+(item.title || "игра пока неизвестна") : typeName(item.type));
-    const other = isGroup ? " · " + (item.participants||[]).join(", ") :
+    const other = isGroup ? " · " + [...(item.participants||[]),...(item.manualGuests||[]).map(n=>n+" (гость)")].join(", ") :
       isParty ? " · состав: " + item.participants.join(", ") :
       isLock ? (' · с ' + nameOf(item.fromUid === state.uid ? item.toUid : item.fromUid))
       : item.type === "collab" && item.guestNick ? " · с "+item.guestNick : "";
     const controls = isParty
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="party-details" data-id="' + h(item.id) + '">Участники и управление</button></div>'
       : isGroup
-      ? '<div class="event-actions"><button class="button button-subtle tiny" data-action="group-cancel" data-id="' + h(item.id) + '">Отменить для всех</button></div>'
+      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="group-details" data-id="' + h(item.id) + '">Участники и гости</button><button class="button button-subtle tiny" data-action="group-cancel" data-id="' + h(item.id) + '">Отменить для всех</button></div>'
       : isLock
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="visibility-collab" data-id="' + h(item.id) + '">Зрителям</button><button class="button button-ghost tiny" data-action="move-collab" data-id="' + h(item.id) + '">Перенести</button><button class="button button-subtle tiny" data-action="cancel-collab" data-id="' + h(item.id) + '">Отменить</button></div>'
       : '<div class="event-actions"><button class="button button-ghost tiny" data-action="edit-event" data-id="' + h(item.id) + '">Изменить</button><button class="button button-subtle tiny" data-action="delete-event" data-id="' + h(item.id) + '">Удалить</button></div>';
@@ -334,7 +335,7 @@ function renderInbox() {
       '<div class="button-row">' + controls.join("") + '</div></article>';
   }).join("");
   screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Центр согласований</p><h1>Приглашения</h1><p class="sub">Предложения появятся здесь без перезагрузки страницы. Принятая коллаба сразу займёт окно у обоих участников.</p></div></div>' +
-    groupInboxHtml(groupCollections(state.groupsOrganized,state.groupsInvited),state.uid) +
+    groupInboxHtml(groupCollections(state.groupsOrganized,state.groupsInvited),state.uid,state.manualGuests) +
     '<div class="panel"><div class="tabs-mini"><button class="' + (state.inboxFilter === "pending" ? "active" : "") + '" data-action="inbox-pending">Ожидают ответа (' + pending.length + ')</button><button class="' + (state.inboxFilter === "all" ? "active" : "") + '" data-action="inbox-all">Вся история (' + all.length + ')</button></div>' +
     (rows || '<div class="empty"><strong>Приглашений пока нет</strong>Загляни в «Собрать коллаб», чтобы позвать других стримеров поиграть.</div>') +
     '</div>';
@@ -597,6 +598,58 @@ async function publishPublicSchedule() {
     nick: m.nick || state.nick, twitch: m.twitch || "", telegram: m.telegram || "", youtube: m.youtube || "", tiktok: m.tiktok || "", discord: m.discord || "", events, updatedAt: serverTimestamp()
   });
 }
+function groupGuestsModal(groupId) {
+  const group=state.groupCalendar.find(g=>g.id===groupId &&
+    g.participantsUids?.includes(state.uid));
+  if(!group)throw new Error("Подтверждённая групповая коллаба не найдена.");
+  const guests=groupGuestNames(group,state.manualGuests);
+  const owner=group.organizerUid===state.uid;
+  const members=(group.participants||[]).map(n=>
+    '<div class="party-attendee"><div><strong>'+h(n)+'</strong>'+
+    '<p class="tiny-note">Участник Collab Room</p></div></div>').join("");
+  const others=guests.map(n=>
+    '<div class="party-attendee"><div><strong>'+h(n)+'</strong>'+
+    '<p class="tiny-note">Гость вне сервиса · без аккаунта и приглашений</p></div></div>').join("");
+  const editor=owner?
+    '<form data-form="group-guests" data-group="'+h(group.id)+'">'+
+    '<div class="field"><label>Добавить участников вне Collab Room (один ник на строку)</label>'+
+    '<textarea name="guestNames" rows="4" maxlength="800" placeholder="Например: ДругСоSteam">'+
+    h(guests.join("\n"))+'</textarea></div>'+
+    '<p class="tiny-note">До 15 ников, каждый до 40 символов. Можно добавлять и удалять гостей без отмены коллабы. Гости видны участникам комнаты, но не публикуются зрителям и не получают приглашений.</p>'+
+    '<div class="form-actions"><button class="button" type="submit">Сохранить гостей</button></div></form>':
+    '<p class="tiny-note">Ники гостей может менять только организатор коллабы. Участники сервиса подтверждены отдельно.</p>';
+  modalOpen('<h2 id="modalTitle">Участники групповой коллабы</h2>'+
+    '<p class="sub">'+h(group.game)+' · '+h(dateLabel(group.date))+' · '+
+    fmtTime(group)+' МСК</p>'+
+    '<div class="notice ok">Подтверждённые участники: '+(group.participants||[]).length+
+    ' · гостей вне сервиса: '+guests.length+'</div>'+
+    '<div class="party-attendees">'+members+others+'</div>'+
+    editor+'<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button></div>');
+}
+async function saveGroupGuests(form) {
+  const group=state.groupCalendar.find(g=>g.id===form.dataset.group &&
+    g.organizerUid===state.uid);
+  if(!group)throw new Error("Менять гостей может только организатор подтверждённой коллабы.");
+  const guests=parseGroupGuestNames(form.elements.guestNames.value);
+  const memberNames=(group.participants||[]).map(n=>n.toLocaleLowerCase("ru-RU"));
+  if(guests.some(n=>memberNames.includes(n.toLocaleLowerCase("ru-RU"))))
+    throw new Error("Ник гостя совпадает с подтверждённым участником Collab Room.");
+  // Confirm this group is still active before editing its roster.
+  const current=await getDocFromServer(doc(db,"groupWishes",group.id));
+  if(!current.exists() || current.data().status!=="confirmed" ||
+    current.data().organizerUid!==state.uid)
+    throw new Error("Коллаба уже отменена или изменена. Обнови страницу.");
+  const selected=current.data().options?.[current.data().chosenIndex];
+  if(!selected || selected.date!==group.date ||
+    selected.start!==group.start || selected.end!==group.end ||
+    current.data().game!==group.game)
+    throw new Error("Данные коллабы изменились. Обнови страницу.");
+  await setDoc(doc(db,"collabGuests",groupGuestRecordId(group.id)),
+    groupGuestRecord(group,guests,serverTimestamp()));
+  modalClose();
+  flashMessage("Гости групповой коллабы сохранены: "+guests.length+".");
+}
+
 async function addPartyParticipants(form) {
   const party=partyForLock(state.locks,form.dataset.lock,nameOf,state.manualGuests);
   if(!party||party.fromUid!==state.uid)throw new Error("Менять состав может только организатор.");
@@ -1226,6 +1279,7 @@ document.addEventListener("click", async (event) => {
     }
     if (action === "edit-event") { eventModal(target.dataset.id); return; }
     if (action === "party-details") { collabPartyModal(target.dataset.id); return; }
+    if (action === "group-details") { groupGuestsModal(target.dataset.id); return; }
     if (action === "move-collab") {
       const lock = state.locks.find((x) => x.id === target.dataset.id && [x.fromUid, x.toUid].includes(state.uid));
       if (!lock) throw new Error("Коллаба уже недоступна.");
@@ -1301,6 +1355,7 @@ document.addEventListener("submit", async (event) => {
     } else if (state.authorized && type === "twitch-export-confirm") await commitTwitchExport(form);
     else if (state.authorized && type === "telegram-channel") await telegramChannelSave(form);
     else if (state.authorized && type === "party-add") await addPartyParticipants(form);
+    else if (state.authorized && type === "group-guests") await saveGroupGuests(form);
     else if (state.authorized && type === "event") await saveEvent(form);
     else if (state.authorized && type === "collab-visibility") await saveCollabVisibility(form);
     else if (state.authorized && type === "profile") await saveProfile(form);

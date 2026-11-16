@@ -1,6 +1,8 @@
 import {
   doc, collection, writeBatch, updateDoc, serverTimestamp, FieldPath, getDocFromServer, getDocsFromServer
 } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
+const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
+const { groupGuestNames } = await import("./group-guests.js" + moduleTag);
 
 const h = (x) => String(x ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]);
 const goodDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s||"") && !Number.isNaN(Date.parse(s+"T12:00:00Z"));
@@ -19,7 +21,7 @@ export function groupCommon(g){
   return g.options.map((o,i)=>({ ...o,index:i })).filter(o=>
     (g.inviteeUids||[]).every(uid=>Array.isArray(g.responses?.[uid])&&g.responses[uid].includes(o.index)));
 }
-export function groupInboxHtml(groups,uid){
+export function groupInboxHtml(groups,uid,guestRecords=[]){
   if(!groups.length)return "";
   const cards=groups.map(g=>{
     const owner=g.organizerUid===uid;
@@ -28,6 +30,7 @@ export function groupInboxHtml(groups,uid){
     const confirmed=groupChosen(g);
     const current=Array.isArray(g.responses?.[uid])?g.responses[uid]:[];
     const pending=g.status==="collecting";
+    const guests=g.status==="confirmed" ? groupGuestNames({...g,...(groupChosen(g)||{})},guestRecords) : [];
     const names=[g.organizerName,...(g.inviteeNames||[])].join(", ");
     let details="";
     if(pending&&!owner){
@@ -49,7 +52,9 @@ export function groupInboxHtml(groups,uid){
         '</select></div><p class="tiny-note">Перед подтверждением обновим расписания всех участников с сервера Firebase. При занятости появится предупреждение, но подтверждение можно продолжить.</p>'+
         '<button class="button" data-action="group-finalize" data-id="'+h(g.id)+'">Подтвердить для всех</button>':'');
     } else if(confirmed){
-      details='<div class="notice ok">Подтверждено: '+h(dateText(confirmed.date))+' · '+time(confirmed)+' МСК. Это время занято у всех участников.</div>';
+      details='<div class="notice ok">Подтверждено: '+h(dateText(confirmed.date))+' · '+time(confirmed)+' МСК. Это время занято у всех участников.</div>'+
+        '<p class="tiny-note">Гости вне сервиса: '+(guests.length?h(guests.join(", ")):"пока нет")+'</p>'+
+        '<button class="button button-ghost small" data-action="group-details" data-id="'+h(g.id)+'">'+(owner?'Изменить гостей':'Смотреть участников и гостей')+'</button>';
     } else {
       details='<span class="tiny-note">Приглашение отменено.</span>';
     }

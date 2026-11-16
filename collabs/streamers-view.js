@@ -2,6 +2,7 @@
 const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
 const { twitchPanelHtml, twitchLogin, twitchProfile } = await import("./twitch-panel.js" + moduleTag);
 const { collabParties } = await import("./collab-parties.js" + moduleTag);
+const { groupGuestNames } = await import("./group-guests.js" + moduleTag);
 const h = (value) => String(value ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c]);
 const link = (value) => { try { const u = new URL(String(value || "")); return u.protocol === "https:" ? h(u.href) : ""; } catch { return ""; } };
@@ -17,7 +18,7 @@ function ownDiaryEvents(uid,slots,locks,diary,members,manualGuests=[]) {
     ...slots.filter(e=>e.ownerUid===uid).map(e=>({...e,kind:"slot"})),
     ...collabParties(locks,id=>members.find(m=>m.id===id)?.nick||"",manualGuests)
       .filter(e=>e.participantUids.includes(uid)).map(e=>({...e,type:"collab",kind:"party"})),
-    ...diary.filter(e=>e.status==="confirmed"&&e.participantsUids?.includes(uid)).map(e=>({...e,type:"collab",kind:"group"}))
+    ...diary.filter(e=>e.status==="confirmed"&&e.participantsUids?.includes(uid)).map(e=>({...e,type:"collab",kind:"group",manualGuests:groupGuestNames(e,manualGuests)}))
   ];
 }
 function typeName(e){
@@ -78,7 +79,7 @@ export function streamerDayHtml({uid,date,slots,locks,diary,members,manualGuests
   const all=ownDiaryEvents(uid,slots,locks,diary,members,manualGuests).filter(e=>e.date===date).sort((a,b)=>a.start.localeCompare(b.start));
   const rows=all.map(e=>{
     const others=e.kind==="party"?e.participants.join(", ") :
-      e.kind==="group"?(e.participants||[]).join(", "):
+      e.kind==="group"?[...(e.participants||[]),...(e.manualGuests||[]).map(n=>n+" (гость)")].join(", "):
       e.kind==="slot"&&e.type==="collab"?e.guestNick||"":"";
     return '<div class="mod-detail-full"><span class="tag '+h(e.type)+'">'+typeName(e)+'</span>'+
       '<h3>'+h(description(e))+'</h3><p class="tiny-note">'+time(e)+' МСК'+(others?' · состав: '+h(others):"")+'</p>'+
