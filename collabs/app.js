@@ -1200,8 +1200,18 @@ document.addEventListener("click", async (event) => {
         } else if (action === "group-finalize") {
           const index=Number(answer.querySelector("[data-group-final-choice]")?.value);
           const chosen=group.options[index];
-          if (!chosen || [group.organizerUid,...group.inviteeUids].some(uid=>availability(uid,chosen)==="busy"))
-            throw new Error("Выбранное время уже занято у кого-то из участников. Проверь календари.");
+          if (!chosen) throw new Error("Выбранный вариант коллабы не найден. Обнови страницу.");
+          const participants=[...new Set([group.organizerUid,...group.inviteeUids])];
+          const conflicts=participants.flatMap(uid=>
+            bookingConflicts(uid,chosen).map(blocker=>({uid,...blocker})));
+          if (conflicts.length) {
+            const examples=conflicts.slice(0,4).map(blocker=>
+              nameOf(blocker.uid)+": "+blocker.label+" ("+blocker.date+" "+
+              blocker.start+"–"+blocker.end+" МСК)").join("; ");
+            const more=conflicts.length>4?" (и ещё "+(conflicts.length-4)+")":"";
+            throw new Error("Не удалось подтвердить коллабу: "+examples+more+
+              ". Встреча 21:00–01:00 затрагивает также следующий день — проверь соседние даты.");
+          }
           await finalizeGroupWish(db,group,state.uid,index);
           flashMessage("Общий слот подтверждён. Время занято у всех участников.");
           queueTwitchAutoPush();
