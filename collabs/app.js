@@ -7,7 +7,8 @@ const { utcWindow, buildTwitchExportSources, buildExportPlan, exportIdentity,
   getTwitchSegments, exportPreviewHtml, pushSelectedEvents } =
     await import("./twitch-export.js" + moduleTag);
 const { collabParties, canJoinExistingSession, partyForLock, sameCollabSession, partySessionId } = await import("./collab-parties.js" + moduleTag);
-const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, finalizeGroupWish, cancelGroupWish } = await import("./group-wishes.js" + moduleTag);
+const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, freshGroupFinalizeSnapshot, finalizeGroupWish, cancelGroupWish } = await import("./group-wishes.js" + moduleTag);
+const { groupBookingConflicts, groupConflictWarning } = await import("./group-confirmation.js" + moduleTag);
 const { startPublicView } = await import("./views.js" + moduleTag);
 const { publicSlotEvent } = await import("./manual-collab.js" + moduleTag);
 const { telegramClient } = await import("./telegram-client.js" + moduleTag);
@@ -549,14 +550,13 @@ function wishModal() {
     '<div class="section-bar" style="margin:22px 0 9px"><h3>Кого пригласить</h3><span class="tiny-note">До 10 участников</span></div>' +
     (people ? '<div class="wish-people">' + people + '</div>' : '<div class="notice info">В комнате пока нет других участников.</div>') +
     '<div class="field" style="margin-top:17px"><label>Сообщение (необязательно)</label><textarea name="message" maxlength="500" placeholder="Кто за совместный забег?"></textarea></div>' +
-    '<p class="tiny-note" style="margin:12px 0">Участники выберут несколько подходящих вариантов. Ты подтвердишь только общий вариант, подходящий всем. До подтверждения время не блокируется.</p>' +
+    '<p class="tiny-note" style="margin:12px 0">Участники выберут несколько подходящих вариантов. Занятые часы тоже можно предложить: перед окончательным подтверждением сайт обновит календари из Firebase и предупредит о пересечениях. До подтверждения время не блокируется.</p>' +
     '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Отмена</button>' +
     '<button type="submit" class="button">Отправить приглашения</button></div></form>');
 }
 async function sendWish(form) {
   const created = await createGroupWish({
-    db, form, members: state.members, uid: state.uid, nick: state.nick, today: mskToday(),
-    busy: (memberId,request) => availability(memberId,request)==="busy"
+    db, form, members: state.members, uid: state.uid, nick: state.nick, today: mskToday()
   });
   telegram.notify("g",created.id).catch(e=>console.warn("Telegram group notify:",e.message));
   modalClose();
@@ -1199,11 +1199,16 @@ document.addEventListener("click", async (event) => {
           flashMessage("Подходящие варианты отправлены организатору.");
         } else if (action === "group-finalize") {
           const index=Number(answer.querySelector("[data-group-final-choice]")?.value);
-          const chosen=group.options[index];
-          if (!chosen || [group.organizerUid,...group.inviteeUids].some(uid=>availability(uid,chosen)==="busy"))
-            throw new Error("Выбранное время уже занято у кого-то из участников. Проверь календари.");
-          await finalizeGroupWish(db,group,state.uid,index);
-          flashMessage("Общий слот подтверждён. Время занято у всех участников.");
+          // Read current replies and every participant's calendar from the server,
+          // never the onSnapshot/local cache at the moment of confirmation.
+          const fresh=await freshGroupFinalizeSnapshot(db,group.id,state.uid,index);
+          const conflicts=groupBookingConflicts(fresh.group,fresh.chosen,fresh);
+          if(conflicts.length && !confirm(groupConflictWarning(conflicts,fresh.chosen)))
+            return;
+          await finalizeGroupWish(db,fresh.group,state.uid,index);
+          flashMessage(conflicts.length
+            ? "Коллаба подтверждена несмотря на "+conflicts.length+" пересечений. Остальные события сохранены."
+            : "Общий слот подтверждён. Время занято у всех участников.");
           queueTwitchAutoPush();
         } else {
           await cancelGroupWish(db,group,state.uid);
