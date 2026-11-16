@@ -536,7 +536,7 @@ function wishTimeRow(index, date = (state.date >= mskToday() ? state.date : mskT
 function wishModal() {
   const others = state.members.filter((member) => member.id !== state.uid).sort((a, b) => a.nick.localeCompare(b.nick, "ru"));
   const people = others.map((member) => {
-    const text = "Доступность каждого варианта проверится при отправке";
+    const text = "Перед итоговым подтверждением проверим свежие календари";
     const dm = safeUrl(member.telegramDM);
     return '<div class="wish-person-wrap"><label class="wish-person"><input type="checkbox" name="wishRecipient" value="' + h(member.id) + '">' +
       '<span class="wish-person-details"><strong>' + h(member.nick || "Участник") + '</strong>' +
