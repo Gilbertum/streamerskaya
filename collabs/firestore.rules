@@ -21,7 +21,8 @@ service cloud.firestore {
     }
     function goodMember(d) {
       return d.keys().hasAll(['nick','twitch','steam','telegram','telegramDM','youtube','tiktok','discord','weekdays','weekend','updatedAt'])
-        && d.keys().hasOnly(['nick','twitch','steam','telegram','telegramDM','youtube','tiktok','discord','weekdays','weekend','updatedAt'])
+        && d.keys().hasOnly(['nick','twitch','steam','telegram','telegramDM','youtube','tiktok','discord','weekdays','weekend','updatedAt',
+          'addressForm','birthDay','birthMonth'])
         && d.nick is string && d.nick.size() >= 2 && d.nick.size() <= 40
         && d.twitch is string && d.twitch.size() <= 300
         && d.steam is string && d.steam.size() <= 300
@@ -32,6 +33,16 @@ service cloud.firestore {
         && d.discord is string && d.discord.size() <= 300
         && d.weekdays is string && d.weekdays.size() <= 80
         && d.weekend is string && d.weekend.size() <= 80
+        && d.get('addressForm','neutral') in ['neutral','male','female']
+        && d.get('birthDay',0) is int && d.get('birthMonth',0) is int
+        && (
+          (d.get('birthMonth',0) == 0 && d.get('birthDay',0) == 0)
+          ||
+          (d.get('birthMonth',0) >= 1 && d.get('birthMonth',0) <= 12
+            && d.get('birthDay',0) >= 1 && d.get('birthDay',0) <= 31
+            && (d.get('birthMonth',0) != 2 || d.get('birthDay',0) <= 29)
+            && (d.get('birthMonth',0) in [4,6,9,11] ? d.get('birthDay',0) <= 30 : true))
+        )
         && d.updatedAt is timestamp;
     }
     function goodSlot(d) {
