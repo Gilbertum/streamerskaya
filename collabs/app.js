@@ -394,7 +394,7 @@ function renderProfile() {
     '<div class="full"><button class="button" type="submit">Сохранить профиль</button></div></form></section>' +
     '<section class="panel"><h2>Ссылка для зрителей</h2><p class="muted">Зрители увидят опубликованные события, у которых НЕ установлена галочка «Не показывать зрителям».</p><div class="profile-link">' + h(publicLink(state.uid)) + '</div>' +
     '<div class="button-row"><button class="button" data-action="copy-public">Копировать ссылку</button><a class="button button-ghost" href="' + h(publicLink(state.uid)) + '" target="_blank" rel="noopener noreferrer">Посмотреть ↗</a></div>' +
-    '<div class="notice info">Дни «недоступна» и «под вопросом», переписка и приглашения не попадут в ссылку для сообщества.</div>' +
+    '<div class="notice info">Внутренние отметки недоступности, переписка и приглашения не попадут в ссылку для сообщества.</div>' +
     '<h3 style="margin-top:26px">Ссылка для модераторов</h3><p class="muted">Месяц и детали подтверждённых коллабов. Доступ есть только у тех, кому разрешение выдано в Firebase.</p>' +
     '<div class="profile-link">' + h(moderatorLink(state.uid)) + '</div>' +
     '<div class="button-row"><button class="button button-ghost small" data-action="copy-moderator">Копировать ссылку для модератора</button></div>' +
