@@ -1000,18 +1000,31 @@ async function saveProfile(form) {
     weekend: String(data.weekend || "").trim().slice(0, 80),
     updatedAt: serverTimestamp()
   };
-  await setDoc(doc(db, "members", state.uid), member);
+  let stored=member,needsRules=false;
+  try{
+    await setDoc(doc(db, "members", state.uid), member);
+  }catch(error){
+    if(error?.code!=="permission-denied")throw error;
+    // Keep older profile editing functional until the administrator publishes updated Rules.
+    // Explicitly warn: new address/birthday values were NOT persisted.
+    const {addressForm:_address,birthDay:_day,birthMonth:_month,...legacy}=member;
+    await setDoc(doc(db, "members", state.uid), legacy);
+    stored=legacy;
+    needsRules=true;
+  }
   state.nick = nick;
-  state.member = member;
+  state.member = stored;
   await publishPublicSchedule();
   render();
-  flashMessage("Профиль и имя в публичном расписании обновлены.");
+  flashMessage(needsRules
+    ? "Профиль сохранён, но обращение и день рождения НЕ сохранены. Администратору нужно опубликовать новые Firestore Rules из collabs/firestore.rules."
+    : "Профиль и имя в публичном расписании обновлены.",needsRules);
 }
 async function sendInvite(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   const uid = form.dataset.uid;
   const member = person(uid);
-  if (!member || uid === state.uid) throw new Error("Участник не найдена.");
+  if (!member || uid === state.uid) throw new Error("Участник не найден.");
   if (!isDate(data.date) || !isTime(data.start) || !isTime(data.end) || data.start === data.end) throw new Error("Проверь дату и часы коллаба.");
   if (data.date < mskToday()) throw new Error("Нельзя отправить приглашение на прошедший день.");
   const game = String(data.game || "").trim().slice(0, 90);
@@ -1322,7 +1335,7 @@ document.addEventListener("click", async (event) => {
     }
     if (action === "current-month") { state.date = mskToday(); state.month = state.date.slice(0, 7); render(); return; }
     if (action === "open-streamer") {
-      if (!person(target.dataset.uid)) throw new Error("Участник не найдена.");
+      if (!person(target.dataset.uid)) throw new Error("Участник не найден.");
       state.streamerSelectedUid = target.dataset.uid;
       state.streamerMonth = mskToday().slice(0,7);
       render(); return;
