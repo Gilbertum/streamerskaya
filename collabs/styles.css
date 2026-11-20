@@ -289,3 +289,14 @@ form[data-form="telegram-channel"] .field{margin-bottom:10px}
 .community-event.boosty strong {color:#ffdec7;}
 .community-event.off {background:#22362a;border-color:#4b9369;}
 .community-event.off strong {color:#c8f3db;}
+
+
+/* Member-only birthday reminders; never shown in anonymous public schedule. */
+.birthday-notice{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:0 0 16px;
+  padding:13px 17px;border:1px solid #7b596f;border-radius:13px;
+  color:#ffdae8;background:linear-gradient(105deg,#382537,#252335);
+  font-size:13px;font-weight:600;line-height:1.5}
+.birthday-separator{display:inline-block;height:16px;border-left:1px solid #8c7086;margin:0 5px}
+.birthday-date{display:inline-block;color:#ffd7a3;font-size:12px;font-weight:750}
+.birthday-profile{padding:9px 13px;margin:8px 0 15px;background:#302a36;border:1px solid #634d62;
+  border-radius:10px;color:#ffddaa;font-size:13px}

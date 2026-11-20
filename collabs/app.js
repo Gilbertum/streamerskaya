@@ -10,6 +10,7 @@ const { collabParties, canJoinExistingSession, partyForLock, sameCollabSession, 
 const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, freshGroupFinalizeSnapshot, finalizeGroupWish, cancelGroupWish } = await import("./group-wishes.js" + moduleTag);
 const { groupBookingConflicts, groupConflictWarning } = await import("./group-confirmation.js" + moduleTag);
 const { groupGuestRecordId, groupGuestNames, parseGroupGuestNames, groupGuestRecord } = await import("./group-guests.js" + moduleTag);
+const { availabilityText, validBirthday, upcomingBirthdays } = await import("./member-profile.js" + moduleTag);
 const { ROSTER_TYPE, rosterPreference, projectRoster, rebuildRosterProjections } = await import("./public-collab-roster.js" + moduleTag);
 const { startPublicView } = await import("./views.js" + moduleTag);
 const { publicSlotEvent } = await import("./manual-collab.js" + moduleTag);
@@ -119,7 +120,7 @@ function profileLinks(member) {
   return links.join("");
 }
 function typeName(type) {
-  return ({ stream: "Twitch", boosty: "Boosty", off: "Выходной", busy: "Недоступна", maybe: "Под вопросом", free: "Свободна", collab: "Коллаба" })[type] || "Событие";
+  return ({ stream: "Twitch", boosty: "Boosty", off: "Выходной", busy: "Недоступно", maybe: "Под вопросом", free: "Свободное время", collab: "Коллаба" })[type] || "Событие";
 }
 function proposals() {
   const map = new Map([...state.sent, ...state.received].map((p) => [p.id, p]));
@@ -207,6 +208,20 @@ function render() {
   else if (state.tab === "profile") renderProfile();
   else renderCalendar();
 }
+function birthdayReminder(){
+  const birthdays=upcomingBirthdays(state.members,mskToday(),7);
+  if(!birthdays.length)return "";
+  const today=birthdays.filter(x=>x.days===0);
+  const soon=birthdays.filter(x=>x.days>0);
+  const phrases=[];
+  if(today.length)phrases.push("🎂 Сегодня день рождения: "+
+    today.map(x=>h(x.nick)).join(", ")+"! Поздравляем!");
+  if(soon.length)phrases.push("🎉 Скоро день рождения: "+
+    soon.map(x=>h(x.nick)+" — "+h(new Date(x.date+"T12:00:00Z").toLocaleDateString("ru-RU",{day:"numeric",month:"long"}))+
+      " (через "+x.days+" дн.)").join("; "));
+  return '<aside class="birthday-notice" aria-label="Дни рождения участников">'+
+    phrases.join("<span class=\"birthday-separator\"></span>")+'</aside>';
+}
 function renderCalendar() {
   const [year, month] = state.month.split("-").map(Number);
   const firstWeekday = (new Date(year, month - 1, 1).getDay() + 6) % 7;
@@ -251,13 +266,14 @@ function renderCalendar() {
       (!isLock && !isParty && !isGroup && item.public === true ? ' <span class="tag free">Публично</span>' : "") + '</div></div><div>' + controls + '</div></div>';
   }).join("");
   screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Личный планировщик</p><h1>Твой календарь</h1><p class="sub">Планируй стримы и ручные коллабы с гостями вне сайта. Через «Хочу коллабу» согласовывай время с участниками Collab Room.</p></div><div class="button-row"><button class="button button-ghost" data-action="refresh">↻ Обновить</button><button class="button button-ghost" data-action="telegram-publish">✈ Отправить обновлённое расписание в ТГ</button><button class="button button-ghost" data-action="twitch-export">↗ В Twitch</button><button class="button button-ghost" data-action="new-wish">✦ Хочу коллабу</button><button class="button" data-action="new-event">+ Добавить событие</button></div></div>' +
+    birthdayReminder()+
     '<div class="split"><section class="panel"><div class="section-bar"><h2 class="calendar-heading">' +
     new Date(year, month - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" }) +
     '</h2><div class="button-row"><button class="button button-ghost small" data-action="previous-month">←</button><button class="button button-ghost small" data-action="current-month">Сегодня</button><button class="button button-ghost small" data-action="next-month">→</button></div></div><div class="calendar-week">' +
     ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((x) => "<span>" + x + "</span>").join("") +
     '</div><div class="calendar-grid">' + dayButtons + '</div><p class="tiny-note" style="margin:15px 0 0">Фиолетовый — Twitch · оранжевый — Boosty · зелёный — выходной · жёлтый — коллаба. Открой день, чтобы увидеть подробности.</p></section>' +
     '<section class="panel"><div class="section-bar"><h2 style="text-transform:capitalize">' + h(dateLabel(state.date)) + '</h2><button class="button button-ghost small" data-action="new-event">+ Событие</button></div>' +
-    (events || '<div class="empty"><strong>Планов нет</strong>В этот день ты свободна для предложений.</div>') +
+    (events || '<div class="empty"><strong>Планов нет</strong>На этот день нет записей — можно обсуждать предложения.</div>') +
     '<div class="mini-spacer"></div><div class="notice info">Подтверждённые коллабы появляются здесь автоматически. Личные отметки видны только участникам комнаты.</div></section></div>';
 
 }
@@ -278,7 +294,7 @@ function renderSearch() {
   const order = { free: 0, maybe: 1, busy: 2 };
   sorted.sort((a, b) => (order[a.status] - order[b.status]) || a.nick.localeCompare(b.nick, "ru"));
   const results = sorted.map((m) => {
-    const statusLabel = m.status === "free" ? "Свободна" : m.status === "maybe" ? "Под вопросом" : "Занята";
+    const statusLabel = availabilityText(m,m.status);
     const extra = [m.weekdays ? "Будни: " + m.weekdays : "", m.weekend ? "Выходные: " + m.weekend : ""].filter(Boolean).join(" · ");
     return '<div class="search-result"><div class="person"><span class="avatar">' + h((m.nick || "?")[0].toUpperCase()) + '</span><div><div class="person-title">' + h(m.nick) + '</div><div class="person-meta">' + h(extra || "Окна уточняются в личной переписке") + '</div><div class="links" style="margin-top:7px">' + profileLinks(m) + '</div></div></div><div class="result-right"><span class="tag ' + m.status + '">' + statusLabel + '</span><button class="button small" data-action="invite" data-uid="' + h(m.id) + '"' + (m.status === "busy" ? " disabled" : "") + '>Пригласить →</button></div></div>';
   }).join("");
@@ -345,9 +361,26 @@ function publicLink(uid) { return location.origin + location.pathname + "#/s/" +
 function moderatorLink(uid) { return location.origin + location.pathname + "#/mod/" + encodeURIComponent(uid); }
 function renderProfile() {
   const m = state.member || {};
-  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Твои настройки</p><h1>Профиль стримера</h1><p class="sub">Ник и ссылки видны другим участникам. Почта, пароль и личные отметки не отображаются в публичном расписании.</p></div></div>' +
+  const options=(count,selected,labels)=>'<option value="">Не указывать</option>'+
+    Array.from({length:count},(_,i)=>i+1).map(n=>
+      '<option value="'+n+'"'+(Number(selected)===n?' selected':'')+'>'+
+      h(labels?labels[n-1]:n)+'</option>').join("");
+  const monthLabels=["Январь","Февраль","Март","Апрель","Май","Июнь",
+    "Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+  const addressOptions=[
+    ["neutral","Не указывать / нейтрально"],
+    ["male","Мужской род (свободен, занят)"],
+    ["female","Женский род (свободна, занята)"]
+  ].map(([value,label])=>'<option value="'+value+'"'+
+    ((m.addressForm||"neutral")===value?" selected":"")+">"+h(label)+"</option>").join("");
+  screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Твои настройки</p><h1>Профиль стримера</h1><p class="sub">Ник, выбранная форма обращения и дата рождения без года видны участникам комнаты. В публичное расписание эти данные не попадают.</p></div></div>' +
     '<div class="two"><section class="panel"><h2>О себе</h2><form data-form="profile" class="form-grid">' +
     '<div class="field full"><label for="nick">Никнейм *</label><input id="nick" name="nick" maxlength="40" required value="' + h(m.nick || state.nick) + '"></div>' +
+    '<div class="field full"><label for="addressForm">Как к тебе обращаться?</label><select name="addressForm" id="addressForm">'+addressOptions+'</select>'+
+       '<p class="tiny-note">Это влияет на подписи «Свободен / Свободна» и «Занят / Занята» для участников. Можно оставить нейтрально.</p></div>'+
+    '<div class="field"><label for="birthDay">День рождения (день)</label><select id="birthDay" name="birthDay">'+options(31,m.birthDay)+'</select></div>'+
+    '<div class="field"><label for="birthMonth">Месяц рождения</label><select id="birthMonth" name="birthMonth">'+options(12,m.birthMonth,monthLabels)+'</select></div>'+
+    '<p class="tiny-note full">Без года рождения. День и месяц видны только участникам Collab Room для поздравлений, не зрителям. Оба поля необязательны.</p>'+
     '<div class="field full"><label for="twitch">Ссылка на Twitch</label><input id="twitch" name="twitch" type="url" placeholder="https://www.twitch.tv/..." value="' + h(m.twitch || "") + '"></div>' +
     '<div class="field full"><label for="steam">Ссылка на Steam</label><input id="steam" name="steam" type="url" placeholder="https://steamcommunity.com/..." value="' + h(m.steam || "") + '"></div>' +
     '<div class="field"><label for="telegram">Telegram</label><input id="telegram" name="telegram" type="url" placeholder="https://t.me/..." value="' + h(m.telegram || "") + '"></div>' +
@@ -361,7 +394,7 @@ function renderProfile() {
     '<div class="full"><button class="button" type="submit">Сохранить профиль</button></div></form></section>' +
     '<section class="panel"><h2>Ссылка для зрителей</h2><p class="muted">Зрители увидят опубликованные события, у которых НЕ установлена галочка «Не показывать зрителям».</p><div class="profile-link">' + h(publicLink(state.uid)) + '</div>' +
     '<div class="button-row"><button class="button" data-action="copy-public">Копировать ссылку</button><a class="button button-ghost" href="' + h(publicLink(state.uid)) + '" target="_blank" rel="noopener noreferrer">Посмотреть ↗</a></div>' +
-    '<div class="notice info">Дни «недоступна» и «под вопросом», переписка и приглашения не попадут в ссылку для сообщества.</div>' +
+    '<div class="notice info">Внутренние отметки недоступности, переписка и приглашения не попадут в ссылку для сообщества.</div>' +
     '<h3 style="margin-top:26px">Ссылка для модераторов</h3><p class="muted">Месяц и детали подтверждённых коллабов. Доступ есть только у тех, кому разрешение выдано в Firebase.</p>' +
     '<div class="profile-link">' + h(moderatorLink(state.uid)) + '</div>' +
     '<div class="button-row"><button class="button button-ghost small" data-action="copy-moderator">Копировать ссылку для модератора</button></div>' +
@@ -947,9 +980,16 @@ async function saveProfile(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   const nick = String(data.nick || "").trim().slice(0, 40);
   if (nick.length < 2) throw new Error("Никнейм должен быть не короче двух символов.");
+  const addressForm=String(data.addressForm||"neutral");
+  if(!["neutral","male","female"].includes(addressForm))throw new Error("Выбери корректную форму обращения.");
+  const birthDay=data.birthDay===""?0:Number(data.birthDay);
+  const birthMonth=data.birthMonth===""?0:Number(data.birthMonth);
+  if(!validBirthday(birthMonth,birthDay))
+    throw new Error("Выбери день и месяц вместе. Проверь, что такая дата существует (29 февраля допустимо).");
   for (const key of ["twitch", "steam", "telegram", "telegramDM", "youtube", "tiktok", "discord"]) if (data[key] && !safeUrl(data[key])) throw new Error("Для ссылок нужен полный адрес https://...");
   const member = {
-    nick, twitch: String(data.twitch || "").trim().slice(0, 300),
+    nick, addressForm, birthDay, birthMonth,
+    twitch: String(data.twitch || "").trim().slice(0, 300),
     steam: String(data.steam || "").trim().slice(0, 300),
     telegram: String(data.telegram || "").trim().slice(0, 300),
     telegramDM: String(data.telegramDM || "").trim().slice(0, 300),
@@ -960,18 +1000,31 @@ async function saveProfile(form) {
     weekend: String(data.weekend || "").trim().slice(0, 80),
     updatedAt: serverTimestamp()
   };
-  await setDoc(doc(db, "members", state.uid), member);
+  let stored=member,needsRules=false;
+  try{
+    await setDoc(doc(db, "members", state.uid), member);
+  }catch(error){
+    if(error?.code!=="permission-denied")throw error;
+    // Keep older profile editing functional until the administrator publishes updated Rules.
+    // Explicitly warn: new address/birthday values were NOT persisted.
+    const {addressForm:_address,birthDay:_day,birthMonth:_month,...legacy}=member;
+    await setDoc(doc(db, "members", state.uid), legacy);
+    stored=legacy;
+    needsRules=true;
+  }
   state.nick = nick;
-  state.member = member;
+  state.member = stored;
   await publishPublicSchedule();
   render();
-  flashMessage("Профиль и имя в публичном расписании обновлены.");
+  flashMessage(needsRules
+    ? "Профиль сохранён, но обращение и день рождения НЕ сохранены. Администратору нужно опубликовать новые Firestore Rules из collabs/firestore.rules."
+    : "Профиль и имя в публичном расписании обновлены.",needsRules);
 }
 async function sendInvite(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   const uid = form.dataset.uid;
   const member = person(uid);
-  if (!member || uid === state.uid) throw new Error("Участник не найдена.");
+  if (!member || uid === state.uid) throw new Error("Участник не найден.");
   if (!isDate(data.date) || !isTime(data.start) || !isTime(data.end) || data.start === data.end) throw new Error("Проверь дату и часы коллаба.");
   if (data.date < mskToday()) throw new Error("Нельзя отправить приглашение на прошедший день.");
   const game = String(data.game || "").trim().slice(0, 90);
@@ -1282,7 +1335,7 @@ document.addEventListener("click", async (event) => {
     }
     if (action === "current-month") { state.date = mskToday(); state.month = state.date.slice(0, 7); render(); return; }
     if (action === "open-streamer") {
-      if (!person(target.dataset.uid)) throw new Error("Участник не найдена.");
+      if (!person(target.dataset.uid)) throw new Error("Участник не найден.");
       state.streamerSelectedUid = target.dataset.uid;
       state.streamerMonth = mskToday().slice(0,7);
       render(); return;
