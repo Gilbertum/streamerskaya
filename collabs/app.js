@@ -217,7 +217,7 @@ function birthdayReminder(){
   if(today.length)phrases.push("🎂 Сегодня день рождения: "+
     today.map(x=>h(x.nick)).join(", ")+"! Поздравляем!");
   if(soon.length)phrases.push("🎉 Скоро день рождения: "+
-    soon.map(x=>h(x.nick)+" — "+h(dateLabel(x.date,{day:"numeric",month:"long"}))+
+    soon.map(x=>h(x.nick)+" — "+h(new Date(x.date+"T12:00:00Z").toLocaleDateString("ru-RU",{day:"numeric",month:"long"}))+
       " (через "+x.days+" дн.)").join("; "));
   return '<aside class="birthday-notice" aria-label="Дни рождения участников">'+
     phrases.join("<span class=\"birthday-separator\"></span>")+'</aside>';
@@ -1201,7 +1201,6 @@ async function checkAccess(user) {
   if (!old.exists()) {
     await accessStep("Шаг 3 — создание нового профиля members", () => setDoc(memberRef, {
       nick: ((user.email || "Новый участник").split("@")[0].length >= 2 ? (user.email || "").split("@")[0] : "Новый участник").slice(0, 40),
-      addressForm:"neutral",birthDay:0,birthMonth:0,
       twitch: "", steam: "", telegram: "", telegramDM: "", youtube: "", tiktok: "", discord: "",
       weekdays: "", weekend: "", updatedAt: serverTimestamp()
     }));
