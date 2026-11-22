@@ -318,6 +318,23 @@ service cloud.firestore {
     function groupMember(g, uid) {
       return uid == g.organizerUid || uid in g.inviteeUids;
     }
+    function groupActiveIds(g){
+      return [g.organizerUid].concat(g.inviteeUids.removeAll(g.get('departedUids', [])));
+    }
+    function groupJoinDoc(joinId){
+      return getAfter(/databases/$(database)/documents/groupJoinRequests/$(joinId)).data;
+    }
+    function validGroupJoinTo(g, groupId, uid){
+      let joinId=g.get('lastJoinId','');
+      let join=groupJoinDoc(joinId);
+      return joinId != '' && join.groupId == groupId
+        && join.organizerUid == g.organizerUid
+        && join.toUid == uid && join.toName == g.inviteeNames[g.inviteeNames.size()-1]
+        && join.game == g.game && join.status == 'accepted'
+        && join.date == g.options[g.chosenIndex].date
+        && join.start == g.options[g.chosenIndex].start
+        && join.end == g.options[g.chosenIndex].end;
+    }
     function validGroupOptions(o) {
       return o is list && o.size() >= 1 && o.size() <= 5
         && validWishChoice(o[0])
@@ -330,7 +347,19 @@ service cloud.firestore {
       return g.keys().hasAll(['organizerUid','organizerName','inviteeUids','inviteeNames',
         'game','message','options','responses','status','chosenIndex','createdAt','updatedAt'])
         && g.keys().hasOnly(['organizerUid','organizerName','inviteeUids','inviteeNames',
-        'game','message','options','responses','status','chosenIndex','createdAt','updatedAt'])
+        'game','message','options','responses','status','chosenIndex','createdAt','updatedAt','sourceSlotId'])
+        && !g.keys().hasAny(['departedUids','lastJoinId'])
+        && (
+          !g.keys().hasAny(['sourceSlotId']) ||
+          (g.sourceSlotId is string && g.sourceSlotId.size() >= 1 && g.sourceSlotId.size() <= 128
+            && exists(/databases/$(database)/documents/slots/$(g.sourceSlotId))
+            && get(/databases/$(database)/documents/slots/$(g.sourceSlotId)).data.ownerUid == request.auth.uid
+            && get(/databases/$(database)/documents/slots/$(g.sourceSlotId)).data.type == 'collab'
+            && get(/databases/$(database)/documents/slots/$(g.sourceSlotId)).data.title == g.game
+            && get(/databases/$(database)/documents/slots/$(g.sourceSlotId)).data.date == g.options[0].date
+            && get(/databases/$(database)/documents/slots/$(g.sourceSlotId)).data.start == g.options[0].start
+            && get(/databases/$(database)/documents/slots/$(g.sourceSlotId)).data.end == g.options[0].end
+            && g.options.size() == 1))
         && g.organizerUid == request.auth.uid
         && g.organizerName is string && g.organizerName.size() >= 2 && g.organizerName.size() <= 40
         && g.inviteeUids is list && g.inviteeUids.size() >= 1 && g.inviteeUids.size() <= 10
@@ -356,6 +385,7 @@ service cloud.firestore {
     }
     function groupApproves(g, i) {
       return g.inviteeUids.size() <= i ||
+        g.inviteeUids[i] in g.get('departedUids',[]) ||
         (g.responses.get(g.inviteeUids[i], []) is list &&
          g.chosenIndex in g.responses.get(g.inviteeUids[i], []));
     }
@@ -375,6 +405,7 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['responses','updatedAt'])
           && request.resource.data.responses.diff(resource.data.responses).affectedKeys().hasOnly([request.auth.uid])
           && request.resource.data.updatedAt is timestamp
+          && !(request.auth.uid in resource.data.get('departedUids',[]))
           && validGroupReply(request.resource.data, request.auth.uid))
         ||
         // Organizer chooses ONE offered option approved by ALL invited users.
@@ -388,6 +419,50 @@ service cloud.firestore {
           && request.resource.data.chosenIndex < resource.data.options.size()
           && allGroupApprove(request.resource.data))
         ||
+        // A recipient leaves without modifying the original invitation list.
+        (resource.data.status in ['collecting','confirmed']
+          && request.auth.uid in resource.data.inviteeUids
+          && !(request.auth.uid in resource.data.get('departedUids',[]))
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['departedUids','updatedAt'])
+          && request.resource.data.get('departedUids',[]) ==
+            resource.data.get('departedUids',[]).concat([request.auth.uid])
+          && request.resource.data.updatedAt is timestamp)
+        ||
+        // Organizer adds a new invitee to a group that is still collecting.
+        (resource.data.status == 'collecting'
+          && request.auth.uid == resource.data.organizerUid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+            ['inviteeUids','inviteeNames','updatedAt'])
+          && request.resource.data.inviteeUids.size() == resource.data.inviteeUids.size()+1
+          && request.resource.data.inviteeUids.size() <= 30
+          && request.resource.data.inviteeUids ==
+            resource.data.inviteeUids.concat([request.resource.data.inviteeUids[resource.data.inviteeUids.size()]])
+          && request.resource.data.inviteeUids.toSet().size()==request.resource.data.inviteeUids.size()
+          && request.resource.data.inviteeNames.size()==request.resource.data.inviteeNames.size()+1
+          && request.resource.data.inviteeNames[resource.data.inviteeNames.size()] is string
+          && request.resource.data.inviteeNames[resource.data.inviteeNames.size()].size() <= 40
+          && request.resource.data.inviteeNames[resource.data.inviteeNames.size()].size() >= 1
+          && isAllowed(request.resource.data.inviteeUids[resource.data.inviteeUids.size()])
+          && groupActiveIds(request.resource.data).size() <= 11
+          && request.resource.data.updatedAt is timestamp)
+        ||
+        // A confirmed group can accept one replacement after their own consent.
+        (resource.data.status == 'confirmed'
+          && request.resource.data.status == 'confirmed'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+            ['inviteeUids','inviteeNames','lastJoinId','updatedAt'])
+          && request.resource.data.inviteeUids.size()==resource.data.inviteeUids.size()+1
+          && request.resource.data.inviteeUids.size() <= 30
+          && request.resource.data.inviteeUids ==
+            resource.data.inviteeUids.concat([request.auth.uid])
+          && !(request.auth.uid in resource.data.inviteeUids)
+          && request.resource.data.inviteeNames.size()==resource.data.inviteeNames.size()+1
+          && groupActiveIds(request.resource.data).size() <= 11
+          && isAllowed(request.auth.uid)
+          && validGroupJoinTo(request.resource.data,groupId,request.auth.uid)
+          && request.resource.data.updatedAt is timestamp)
+        ||
         // Cancellation may be initiated by any invited participant.
         (resource.data.status in ['collecting','confirmed']
           && groupMember(resource.data, request.auth.uid)
@@ -398,13 +473,47 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Replacement invitations are private to the organizer and recipient.
+    function validJoinRequest(d){
+      let g=get(/databases/$(database)/documents/groupWishes/$(d.groupId)).data;
+      return d.keys().hasAll(['groupId','organizerUid','toUid','toName','game','date','start','end',
+        'status','createdAt','updatedAt'])
+        && d.keys().hasOnly(['groupId','organizerUid','toUid','toName','game','date','start','end',
+        'status','createdAt','updatedAt'])
+        && d.groupId is string && d.groupId.size() >= 1 && d.groupId.size() <= 128
+        && g.status == 'confirmed' && g.organizerUid == request.auth.uid
+        && d.organizerUid == g.organizerUid && d.toUid != g.organizerUid
+        && !(d.toUid in g.inviteeUids) && isAllowed(d.toUid)
+        && d.toUid is string && d.toName is string && d.toName.size() >= 1 && d.toName.size() <= 40
+        && d.game == g.game && d.date == g.options[g.chosenIndex].date
+        && d.start == g.options[g.chosenIndex].start
+        && d.end == g.options[g.chosenIndex].end
+        && groupActiveIds(g).size() <= 10
+        && d.status == 'pending'
+        && d.createdAt is timestamp && d.updatedAt is timestamp;
+    }
+    match /groupJoinRequests/{joinId} {
+      allow get, list: if member() &&
+        (resource.data.organizerUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+      allow create: if member() && validJoinRequest(request.resource.data);
+      allow update: if member() && request.auth.uid == resource.data.toUid
+        && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','updatedAt'])
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.status in ['accepted','declined']
+        && (request.resource.data.status == 'declined' ||
+          (getAfter(/databases/$(database)/documents/groupWishes/$(resource.data.groupId)).data.lastJoinId == joinId
+            && request.auth.uid in getAfter(/databases/$(database)/documents/groupWishes/$(resource.data.groupId)).data.inviteeUids));
+      allow delete: if false;
+    }
+
     // A group diary is available to room members and authorized moderators.
     // It has no private invite messages; all writes are validated against groupWishes.
     function groupDoc(id) {
       return getAfter(/databases/$(database)/documents/groupWishes/$(id)).data;
     }
     function diaryOwner(g, ownerUid) {
-      return ownerUid == g.organizerUid || ownerUid in g.inviteeUids;
+      return ownerUid in groupActiveIds(g);
     }
     function validGroupDiary(d, groupId, ownerUid) {
       let g = groupDoc(groupId);
@@ -416,7 +525,8 @@ service cloud.firestore {
         && d.organizerName == g.organizerName
         && d.game == g.game
         && d.participants is list
-        && d.participants == [g.organizerName].concat(g.inviteeNames)
+        && d.participants.size() == groupActiveIds(g).size()
+        && d.participants[0] == g.organizerName
         && diaryOwner(g,ownerUid)
         && (
           (g.status == 'collecting' && d.status == 'collecting'
@@ -430,15 +540,29 @@ service cloud.firestore {
     }
     match /groupDiary/{ownerUid}/items/{groupId} {
       allow read: if member() || isModeratorOf(ownerUid);
-      allow create: if member() && request.auth.uid == groupDoc(groupId).organizerUid
+      allow create: if member() &&
+        (request.auth.uid == groupDoc(groupId).organizerUid ||
+          (request.auth.uid == ownerUid && validGroupJoinTo(groupDoc(groupId),groupId,ownerUid)))
         && validGroupDiary(request.resource.data,groupId,ownerUid);
-      allow update: if member() && request.auth.uid == groupDoc(groupId).organizerUid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','date','start','end'])
+      allow update: if member() &&
+        (request.auth.uid == groupDoc(groupId).organizerUid
+         || (request.auth.uid in groupDoc(groupId).get('departedUids',[])
+             && groupDoc(groupId).get('departedUids',[]) !=
+                get(/databases/$(database)/documents/groupWishes/$(groupId)).data.get('departedUids',[]))
+         || (validGroupJoinTo(groupDoc(groupId),groupId,request.auth.uid) &&
+             groupDoc(groupId).get('lastJoinId','') !=
+                get(/databases/$(database)/documents/groupWishes/$(groupId)).data.get('lastJoinId','')))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status','date','start','end','participants'])
         && validGroupDiary(request.resource.data,groupId,ownerUid);
-      allow delete: if member()
-        && groupDoc(groupId).status == 'cancelled'
-        && groupMember(groupDoc(groupId),request.auth.uid)
-        && diaryOwner(groupDoc(groupId),ownerUid);
+      allow delete: if member() &&
+        ((groupDoc(groupId).status == 'cancelled'
+          && groupMember(groupDoc(groupId),request.auth.uid)
+          && diaryOwner(groupDoc(groupId),ownerUid))
+          || (request.auth.uid == ownerUid
+            && request.auth.uid in groupDoc(groupId).get('departedUids',[])
+            && !(request.auth.uid in
+                get(/databases/$(database)/documents/groupWishes/$(groupId)).data.get('departedUids',[]))));
     }
 
     // Flat confirmed-group calendar is queryable by all authorized streamers.
@@ -449,10 +573,10 @@ service cloud.firestore {
         && g.status == 'confirmed'
         && d.organizerUid == g.organizerUid && d.game == g.game
         && d.participantsUids is list
-        && d.participantsUids.size() == g.inviteeUids.size() + 1
+        && d.participantsUids.size() == groupActiveIds(g).size()
         && d.participants is list && d.participants.size() == d.participantsUids.size()
-        && d.participantsUids == [g.organizerUid].concat(g.inviteeUids)
-        && d.participants == [g.organizerName].concat(g.inviteeNames)
+        && d.participantsUids == groupActiveIds(g)
+        && d.participants[0] == g.organizerName
         && d.date == g.options[g.chosenIndex].date
         && d.start == g.options[g.chosenIndex].start
         && d.end == g.options[g.chosenIndex].end;
@@ -463,7 +587,22 @@ service cloud.firestore {
         && validGroupCalendar(request.resource.data,groupId);
       allow delete: if member() && groupDoc(groupId).status == 'cancelled'
         && groupMember(groupDoc(groupId),request.auth.uid);
-      allow update: if false;
+      allow update: if member() && validGroupCalendar(request.resource.data,groupId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['participantsUids','participants'])
+        && (
+          (request.auth.uid in groupDoc(groupId).get('departedUids',[])
+            && request.auth.uid in resource.data.participantsUids
+            && !(request.auth.uid in request.resource.data.participantsUids)
+            && groupDoc(groupId).get('departedUids',[]) !=
+              get(/databases/$(database)/documents/groupWishes/$(groupId)).data.get('departedUids',[]))
+          ||
+          (request.auth.uid in request.resource.data.participantsUids
+            && !(request.auth.uid in resource.data.participantsUids)
+            && validGroupJoinTo(groupDoc(groupId),groupId,request.auth.uid)
+            && groupDoc(groupId).get('lastJoinId','') !=
+              get(/databases/$(database)/documents/groupWishes/$(groupId)).data.get('lastJoinId',''))
+        );
     }
 
     // Public group markers: generic label and hours only, no private messages.
@@ -481,14 +620,21 @@ service cloud.firestore {
     }
     match /publicGroupCollabs/{ownerUid}/items/{groupId} {
       allow get, list: if true;
-      allow create: if member() && request.auth.uid == groupDoc(groupId).organizerUid
+      allow create: if member() &&
+        (request.auth.uid == groupDoc(groupId).organizerUid
+          || (request.auth.uid == ownerUid && validGroupJoinTo(groupDoc(groupId),groupId,ownerUid)))
         && goodGroupPublic(request.resource.data,groupId,ownerUid)
         && request.resource.data.game == '' && request.resource.data.partner == '';
       allow update: if member() && me(ownerUid)
         && goodGroupPublic(request.resource.data,groupId,ownerUid);
-      allow delete: if member() && groupDoc(groupId).status == 'cancelled'
-        && groupMember(groupDoc(groupId),request.auth.uid)
-        && diaryOwner(groupDoc(groupId),ownerUid);
+      allow delete: if member() &&
+        ((groupDoc(groupId).status == 'cancelled'
+          && groupMember(groupDoc(groupId),request.auth.uid)
+          && diaryOwner(groupDoc(groupId),ownerUid))
+          || (request.auth.uid == ownerUid
+            && request.auth.uid in groupDoc(groupId).get('departedUids',[])
+            && !(request.auth.uid in
+              get(/databases/$(database)/documents/groupWishes/$(groupId)).data.get('departedUids',[]))));
     }
 
     // Only the authenticated owner reads and writes Twitch segment mappings.
