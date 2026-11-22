@@ -194,8 +194,10 @@ function conflictDescription(ownerUid,request,ignoreLockId="",joining=null) {
 function countPending() {
   return state.received.filter(p=>p.status==="pending").length +
     state.groupJoinsReceived.filter(p=>p.status==="pending").length +
-    state.groupsInvited.filter(g=>g.status==="collecting"&&!Array.isArray(g.responses?.[state.uid])).length +
-    state.groupsOrganized.filter(g=>g.status==="collecting" && g.inviteeUids?.every(id=>Array.isArray(g.responses?.[id]))).length;
+    state.groupsInvited.filter(g=>g.status==="collecting"&&groupAttendance(g,state.uid)==="active"&&!Array.isArray(g.responses?.[state.uid])).length +
+    state.groupsOrganized.filter(g=>g.status==="collecting" &&
+      activeGroupMembers(g).ids.length>1 &&
+      activeGroupMembers(g).ids.slice(1).every(id=>Array.isArray(g.responses?.[id]))).length;
 }
 function render() {
   if (!state.authorized) return;
@@ -310,6 +312,46 @@ function renderSearch() {
     '<div>' + (results || '<div class="empty">Пока в комнате нет других участников. Добавь их через Firebase Authentication и allowedUsers.</div>') + '</div>' +
     '<div class="notice info">Поиск учитывает отмеченные стримы, блокировки, сомнительные окна и принятые коллабы. Это предварительная проверка: окончательное согласие даёт сам участник.</div>';
 }
+function groupJoinInvitationsHtml(){
+  const received=state.groupJoinsReceived.filter(i=>state.inboxFilter!=="pending"||i.status==="pending");
+  const sent=state.groupJoinsSent.filter(i=>state.inboxFilter!=="pending"||i.status==="pending");
+  const uniq=new Map([...received,...sent].map(i=>[i.id,i]));
+  if(!uniq.size)return "";
+  const cards=[...uniq.values()].sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0)).map(i=>{
+    const recipient=i.toUid===state.uid;
+    const status=i.status==="pending"?"Ожидает ответа":i.status==="accepted"?"Принято":"Отклонено";
+    const actions=i.status==="pending"&&recipient?
+      '<div class="button-row"><button class="button small" data-action="group-join-reply" data-id="'+h(i.id)+'" data-answer="accepted">Присоединиться</button>'+
+      '<button class="button button-subtle small" data-action="group-join-reply" data-id="'+h(i.id)+'" data-answer="declined">Отказаться</button></div>':"";
+    return '<article class="invite"><div class="invite-top"><div><strong>Приглашение в действующую группу: '+
+      h(i.game)+'</strong><p class="tiny-note">'+h(dateLabel(i.date))+
+      ' · '+fmtTime(i)+' МСК · '+(recipient?'От организатора':'Для')+' '+h(recipient?nameOf(i.organizerUid):i.toName)+
+      '</p></div><span class="tag status-'+h(i.status==="pending"?"pending":i.status==="accepted"?"accepted":"cancelled")+'">'+status+'</span></div>'+
+      '<p class="tiny-note">Ранее подтверждённые участники сохраняют своё время. Решение касается только нового приглашённого.</p>'+
+      actions+'</article>';
+  }).join("");
+  return '<section class="panel" style="margin-bottom:20px"><h2>Дополнительные приглашения в коллабы</h2>'+cards+'</section>';
+}
+function groupAddMemberModal(id){
+  const group=state.groupsOrganized.find(g=>g.id===id);
+  if(!group||!["collecting","confirmed"].includes(group.status))
+    throw new Error("Только организатор может приглашать людей в активную коллабу.");
+  const people=groupCandidateList(group,state.members,(uid,slot)=>availability(uid,slot));
+  const label=group.status==="confirmed"?"Подтверждённая дата":"Подходит хотя бы один предложенный вариант";
+  const options=people.map(p=>'<option value="'+h(p.id)+'">'+h(p.nick)+' — '+
+    (p.availability==="free"?"время свободно":"под вопросом")+'</option>').join("");
+  const date=group.status==="confirmed"?group.options?.[group.chosenIndex]:group.options?.[0];
+  modalOpen('<h2 id="modalTitle">Пригласить замену в коллабу</h2>'+
+    '<p class="sub">'+h(group.game)+' · '+h(dateLabel(date.date))+' · '+fmtTime(date)+' МСК</p>'+
+    '<p class="tiny-note">'+label+'. В списке только участники, у которых нет подтверждённой занятости на подходящее время. Проверка предварительная; окончательное согласие даёт сам человек.</p>'+
+    (options?'<form data-form="group-add-member" data-id="'+h(id)+'">'+
+      '<div class="field"><label>Кого пригласить?</label><select name="memberUid" required>'+options+'</select></div>'+
+      '<p class="tiny-note">Новый участник получит приглашение. Состав уже подтверждённой коллабы изменится только после его согласия.</p>'+
+      '<div class="form-actions"><button class="button" type="submit">Отправить приглашение</button></div></form>':
+      '<div class="notice info">Свободных участников сейчас не найдено. Проверь их расписания во вкладке «Стримеры» или предложи другое время.</div>')+
+    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button></div>');
+}
+
 function renderInbox() {
   const all = proposals();
   const pending = all.filter((p) => p.status === "pending");
@@ -548,7 +590,9 @@ function eventModal(id) {
     '<div class="field full"><label>Игра / название стрима или коллабы</label><input name="title" maxlength="90" value="' + h(source.title || "") + '" placeholder="Например, Chained Together (можно оставить пустым)"></div>' +
     '<div class="field full" data-manual-collab' + (source.type === "collab" ? "" : " hidden") + '><label>Ник участника вне Collab Room *</label>' +
       '<input name="guestNick" maxlength="80" placeholder="Например, HellFox" value="' + h(source.guestNick || "") + '"' + (source.type === "collab" ? " required" : "") + '>' +
-      '<p class="tiny-note">Гость добавляется вручную: ему не отправляются приглашения, его расписание не меняется.</p></div>' +
+      '<p class="tiny-note">Гость добавляется вручную: ему не отправляются приглашения, его расписание не меняется.</p>'+
+      (item?'<button type="button" class="button button-ghost small" style="margin-top:12px" data-action="event-invite" data-id="'+h(item.id)+'">+ Пригласить участников Collab Room</button>'+
+        '<p class="tiny-note">Сначала сохраним изменения этой коллабы, затем предложим приглашения из её даты и времени. Ручные гости сохранятся до итогового подтверждения.</p>':"")+'</div>' +
     '<div class="field full manual-collab-privacy" data-manual-collab' + (source.type === "collab" ? "" : " hidden") + '>' +
       '<label class="check-line"><input name="showGame" type="checkbox"' + (source.showGame === true ? " checked" : "") + '>Показывать игру зрителям</label>' +
       '<label class="check-line"><input name="showGuest" type="checkbox"' + (source.showGuest === true ? " checked" : "") + '>Показывать ник гостя зрителям</label>' +
@@ -1381,6 +1425,25 @@ document.addEventListener("click", async (event) => {
     if (action === "authorize-twitch-export") { startTwitchAuthorization("channel:manage:schedule","calendar"); return; }
     if (action === "new-event") { eventModal(); return; }
     if (action === "new-wish") { wishModal(); return; }
+    if (action === "event-invite"){
+      const form=modal.querySelector('form[data-form="event"]');
+      if(!form||!form.dataset.id||form.elements.type.value!=="collab")
+        throw new Error("Сначала открой уже сохранённую ручную коллабу.");
+      const data=Object.fromEntries(new FormData(form).entries());
+      if(state.groupsOrganized.some(g=>g.sourceSlotId===form.dataset.id&&g.status!=="cancelled"))
+        throw new Error("К этой коллабе уже отправлено групповое приглашение. Продолжи согласование во вкладке «Приглашения».");
+      if(state.busy)return;
+      state.busy=true;target.disabled=true;
+      try{
+        await saveEvent(form);
+        wishModal({
+          id:form.dataset.id,ownerUid:state.uid,type:"collab",
+          title:String(data.title||"").trim(),guestNick:String(data.guestNick||"").trim(),
+          date:data.date,start:data.start,end:data.end
+        });
+      }finally{state.busy=false;if(target.isConnected)target.disabled=false;}
+      return;
+    }
     if (action === "add-wish-row") {
       const list = $("wishRows");
       if (!list) return;
@@ -1398,6 +1461,35 @@ document.addEventListener("click", async (event) => {
       if (rows?.length <= 1) { flashMessage("Оставь хотя бы один вариант.", true); return; }
       target.closest("[data-wish-row]")?.remove();
       $("wishRows")?.querySelectorAll(".wish-number").forEach((span, i) => { span.textContent = "Вариант " + (i + 1); });
+      return;
+    }
+    if (action === "group-add-member"){
+      groupAddMemberModal(target.dataset.id);return;
+    }
+    if(action === "group-leave"){
+      if(state.busy)return;
+      if(!confirm("Отказаться только от своего участия? Коллаба и остальные участники сохранятся."))return;
+      state.busy=true;target.disabled=true;
+      try{
+        await leaveGroupWish(db,target.dataset.id,state.uid);
+        flashMessage("Ты вышел из групповой коллабы. Организатор сможет пригласить замену.");
+        await publishPublicSchedule();
+      }finally{state.busy=false;if(target.isConnected)target.disabled=false;}
+      return;
+    }
+    if(action === "group-join-reply"){
+      if(state.busy)return;
+      const invite=state.groupJoinsReceived.find(i=>i.id===target.dataset.id);
+      if(!invite)throw new Error("Приглашение больше не найдено.");
+      const accept=target.dataset.answer==="accepted";
+      const slot={date:invite.date,start:invite.start,end:invite.end};
+      if(accept&&availability(state.uid,slot)==="busy"&&
+        !confirm("Это время уже занято в твоём календаре. Всё равно присоединиться к подтверждённой коллабе?"))return;
+      state.busy=true;target.disabled=true;
+      try{
+        await respondGroupJoin(db,invite.id,state.uid,accept);
+        flashMessage(accept?"Ты присоединился к коллабе. Состав обновился у всех участников.":"Приглашение отклонено, коллаба остальных не изменилась.");
+      }finally{state.busy=false;if(target.isConnected)target.disabled=false;}
       return;
     }
     if (action === "group-reply" || action === "group-finalize" || action === "group-cancel") {
@@ -1519,6 +1611,18 @@ document.addEventListener("submit", async (event) => {
     else if (state.authorized && type === "telegram-channel") await telegramChannelSave(form);
     else if (state.authorized && type === "party-add") await addPartyParticipants(form);
     else if (state.authorized && type === "group-guests") await saveGroupGuests(form);
+    else if (state.authorized && type === "group-add-member"){
+      const group=state.groupsOrganized.find(g=>g.id===form.dataset.id);
+      const member=state.members.find(m=>m.id===form.elements.memberUid.value);
+      if(!group||!member)throw new Error("Коллаба или участник больше не найдены.");
+      if(!groupCandidateList(group,state.members,(id,slot)=>availability(id,slot)).some(m=>m.id===member.id))
+        throw new Error("По текущему календарю этот участник уже занят. Проверь расписание.");
+      const result=await inviteGroupCandidate(db,group.id,state.uid,member);
+      modalClose();
+      flashMessage(result.status==="pending"
+        ? "Приглашение отправлено "+result.candidate+". Он сможет согласиться или отказаться во вкладке «Приглашения»."
+        : "Участник "+result.candidate+" добавлен к согласованию. Нужно дождаться его ответа.");
+    }
     else if (state.authorized && type === "event") await saveEvent(form);
     else if (state.authorized && type === "collab-visibility") await saveCollabVisibility(form);
     else if (state.authorized && type === "collab-roster-visibility") await saveCollabRosterVisibility(form);
