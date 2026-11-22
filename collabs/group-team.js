@@ -20,11 +20,13 @@ export function groupAttendance(group,uid){
 }
 export function groupCandidateList(group,members,availability){
   const involved=new Set([group.organizerUid,...(group.inviteeUids||[])]);
-  const slot=(group.status==="confirmed" ? group.options?.[group.chosenIndex] : group.options?.[0])||null;
-  if(!slot)return [];
-  return (members||[]).filter(m=>m.id&&!involved.has(m.id)).map(m=>({
-    ...m,availability:availability(m.id,slot)
-  })).filter(m=>m.availability==="free"||m.availability==="maybe")
+  const slots=group.status==="confirmed"?[group.options?.[group.chosenIndex]]:group.options||[];
+  if(!slots.length)return [];
+  return (members||[]).filter(m=>m.id&&!involved.has(m.id)).map(m=>{
+    const statuses=slots.filter(Boolean).map(slot=>availability(m.id,slot));
+    return {...m,availability:statuses.includes("free")?"free":
+      statuses.includes("maybe")?"maybe":"busy"};
+  }).filter(m=>m.availability==="free"||m.availability==="maybe")
     .sort((a,b)=>(a.availability==="free"?0:1)-(b.availability==="free"?0:1)||
       String(a.nick).localeCompare(String(b.nick),"ru"));
 }
