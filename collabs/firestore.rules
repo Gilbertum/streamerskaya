@@ -492,7 +492,7 @@ service cloud.firestore {
         ||
         // Cancellation may be initiated by any invited participant.
         (resource.data.status in ['collecting','confirmed']
-          && groupMember(resource.data, request.auth.uid)
+          && request.auth.uid == resource.data.organizerUid
           && request.resource.data.status == 'cancelled'
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','updatedAt'])
           && request.resource.data.updatedAt is timestamp)
