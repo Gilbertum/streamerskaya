@@ -7,9 +7,10 @@ const { utcWindow, buildTwitchExportSources, buildExportPlan, exportIdentity,
   getTwitchSegments, exportPreviewHtml, pushSelectedEvents } =
     await import("./twitch-export.js" + moduleTag);
 const { collabParties, canJoinExistingSession, partyForLock, sameCollabSession, partySessionId } = await import("./collab-parties.js" + moduleTag);
-const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, freshGroupFinalizeSnapshot, finalizeGroupWish, cancelGroupWish } = await import("./group-wishes.js" + moduleTag);
+const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, freshGroupFinalizeSnapshot, finalizeGroupWish, cancelGroupWish, leaveGroupWish, inviteGroupCandidate, respondGroupJoin } = await import("./group-wishes.js" + moduleTag);
 const { groupBookingConflicts, groupConflictWarning } = await import("./group-confirmation.js" + moduleTag);
 const { groupGuestRecordId, groupGuestNames, parseGroupGuestNames, groupGuestRecord } = await import("./group-guests.js" + moduleTag);
+const { groupAttendance, activeGroupMembers, groupCandidateList } = await import("./group-team.js" + moduleTag);
 const { availabilityText, validBirthday, upcomingBirthdays } = await import("./member-profile.js" + moduleTag);
 const { ROSTER_TYPE, rosterPreference, projectRoster, rebuildRosterProjections } = await import("./public-collab-roster.js" + moduleTag);
 const { startPublicView } = await import("./views.js" + moduleTag);
@@ -36,7 +37,7 @@ function storeTwitchAuto(enabled){
 }
 const state = {
   uid: null, nick: "", member: null, authorized: false, busy: false,
-  members: [], slots: [], locks: [], manualGuests: [], groupCalendar: [], groupsOrganized: [], groupsInvited: [], sent: [], received: [],
+  members: [], slots: [], locks: [], manualGuests: [], groupCalendar: [], groupsOrganized: [], groupsInvited: [], groupJoinsSent: [], groupJoinsReceived: [], sent: [], received: [],
   streamerSelectedUid: null, streamerMonth: mskToday().slice(0,7),
   unsubs: [], tab: "calendar", inboxFilter: "pending",
   date: mskToday(), month: mskToday().slice(0, 7),
@@ -192,6 +193,7 @@ function conflictDescription(ownerUid,request,ignoreLockId="",joining=null) {
 }
 function countPending() {
   return state.received.filter(p=>p.status==="pending").length +
+    state.groupJoinsReceived.filter(p=>p.status==="pending").length +
     state.groupsInvited.filter(g=>g.status==="collecting"&&!Array.isArray(g.responses?.[state.uid])).length +
     state.groupsOrganized.filter(g=>g.status==="collecting" && g.inviteeUids?.every(id=>Array.isArray(g.responses?.[id]))).length;
 }
@@ -257,7 +259,7 @@ function renderCalendar() {
     const controls = isParty
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="party-details" data-id="' + h(item.id) + '">Участники и управление</button></div>'
       : isGroup
-      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="group-details" data-id="' + h(item.id) + '">Состав и зрители</button><button class="button button-subtle tiny" data-action="group-cancel" data-id="' + h(item.id) + '">Отменить для всех</button></div>'
+      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="group-details" data-id="' + h(item.id) + '">Состав и зрители</button><button class="button button-ghost tiny" data-action="group-add-member" data-id="' + h(item.id) + '"' + (item.organizerUid===state.uid?"":" hidden") + '>+ Пригласить</button><button class="button button-subtle tiny" data-action="' + (item.organizerUid===state.uid?"group-cancel":"group-leave") + '" data-id="' + h(item.id) + '">' + (item.organizerUid===state.uid?"Отменить для всех":"Отказаться") + '</button></div>'
       : isLock
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="visibility-collab" data-id="' + h(item.id) + '">Зрителям</button><button class="button button-ghost tiny" data-action="move-collab" data-id="' + h(item.id) + '">Перенести</button><button class="button button-subtle tiny" data-action="cancel-collab" data-id="' + h(item.id) + '">Отменить</button></div>'
       : '<div class="event-actions"><button class="button button-ghost tiny" data-action="edit-event" data-id="' + h(item.id) + '">Изменить</button><button class="button button-subtle tiny" data-action="delete-event" data-id="' + h(item.id) + '">Удалить</button></div>';
@@ -353,6 +355,7 @@ function renderInbox() {
   }).join("");
   screen.innerHTML = '<div class="hero"><div><p class="eyebrow">Центр согласований</p><h1>Приглашения</h1><p class="sub">Предложения появятся здесь без перезагрузки страницы. Принятая коллаба сразу займёт окно у обоих участников.</p></div></div>' +
     groupInboxHtml(groupCollections(state.groupsOrganized,state.groupsInvited),state.uid,state.manualGuests) +
+    groupJoinInvitationsHtml() +
     '<div class="panel"><div class="tabs-mini"><button class="' + (state.inboxFilter === "pending" ? "active" : "") + '" data-action="inbox-pending">Ожидают ответа (' + pending.length + ')</button><button class="' + (state.inboxFilter === "all" ? "active" : "") + '" data-action="inbox-all">Вся история (' + all.length + ')</button></div>' +
     (rows || '<div class="empty"><strong>Приглашений пока нет</strong>Загляни в «Собрать коллаб», чтобы позвать других стримеров поиграть.</div>') +
     '</div>';
@@ -568,7 +571,7 @@ function wishTimeRow(index, date = (state.date >= mskToday() ? state.date : mskT
     '<div class="field"><label>Конец, МСК</label><input type="time" name="wishEnd" value="' + h(end) + '" required></div>' +
     '<button type="button" class="button button-ghost tiny" data-action="remove-wish-row" aria-label="Удалить вариант">×</button></div>';
 }
-function wishModal() {
+function wishModal(sourceSlot=null) {
   const others = state.members.filter((member) => member.id !== state.uid).sort((a, b) => a.nick.localeCompare(b.nick, "ru"));
   const people = others.map((member) => {
     const text = "Перед итоговым подтверждением проверим свежие календари";
@@ -578,10 +581,13 @@ function wishModal() {
       '<small>' + h(text) + '</small></span></label>' +
       (dm ? '<a class="wish-contact" href="' + dm + '" target="_blank" rel="noopener noreferrer">ЛС ↗</a>' : "") + '</div>';
   }).join("");
-  modalOpen('<h2 id="modalTitle">✦ Хочу коллабу</h2><p class="muted">Укажи игру и до пяти вариантов времени. Выбери участников галочками — каждый отметит все подходящие варианты. Затем ты выберешь общий слот и подтвердишь его для всех.</p>' +
-    '<form data-form="wish"><div class="field"><label>Игра или идея *</label><input type="text" name="game" maxlength="90" placeholder="Например, The Forest" required></div>' +
-    '<div class="section-bar" style="margin:18px 0 9px"><h3>Варианты даты и времени</h3><button class="button button-ghost small" type="button" data-action="add-wish-row">+ Ещё вариант</button></div>' +
-    '<div id="wishRows" class="wish-rows">' + wishTimeRow(0) + '</div>' +
+  modalOpen('<h2 id="modalTitle">✦ Хочу коллабу</h2><p class="muted">'+(sourceSlot?
+    'Приглашение к сохранённой ручной коллабе. Пока идут ответы, исходная запись останется. Когда подтвердишь общее время, ручная отметка заменится групповой коллабой, а невыбранные гости останутся в составе.':
+    'Укажи игру и до пяти вариантов времени. Выбери участников галочками — каждый отметит все подходящие варианты. Затем ты выберешь общий слот и подтвердишь его для всех.')+'</p>' +
+    '<form data-form="wish" data-source-slot="' + h(sourceSlot?.id||"") + '"><div class="field"><label>Игра или идея *</label><input type="text" name="game" maxlength="90" placeholder="Например, The Forest" value="' + h(sourceSlot?.title||"") + '" required' + (sourceSlot?" readonly":"") + '></div>' +
+    '<div class="section-bar" style="margin:18px 0 9px"><h3>Варианты даты и времени</h3>' + (sourceSlot?"":'<button class="button button-ghost small" type="button" data-action="add-wish-row">+ Ещё вариант</button>') + '</div>' +
+    '<div id="wishRows" class="wish-rows">' + wishTimeRow(0,sourceSlot?.date||undefined,sourceSlot?.start||"20:00",sourceSlot?.end||"23:00") + '</div>' +
+    (sourceSlot?'<p class="tiny-note">При приглашении из ручной коллабы доступен только её сохранённый день и время. Чтобы изменить время, сначала отредактируй событие.</p>':"") +
     '<div class="section-bar" style="margin:22px 0 9px"><h3>Кого пригласить</h3><span class="tiny-note">До 10 участников</span></div>' +
     (people ? '<div class="wish-people">' + people + '</div>' : '<div class="notice info">В комнате пока нет других участников.</div>') +
     '<div class="field" style="margin-top:17px"><label>Сообщение (необязательно)</label><textarea name="message" maxlength="500" placeholder="Кто за совместный забег?"></textarea></div>' +
@@ -590,8 +596,18 @@ function wishModal() {
     '<button type="submit" class="button">Отправить приглашения</button></div></form>');
 }
 async function sendWish(form) {
+  const sourceId=form.dataset.sourceSlot;
+  let sourceSlot=null;
+  if(sourceId){
+    const snapshot=await getDocFromServer(doc(db,"slots",sourceId));
+    if(!snapshot.exists())throw new Error("Ручная коллаба была удалена. Обнови календарь.");
+    sourceSlot={id:snapshot.id,...snapshot.data()};
+    if(state.groupsOrganized.some(g=>g.status!=="cancelled"&&g.sourceSlotId===sourceId))
+      throw new Error("К этой ручной коллабе уже отправлены приглашения. Открой «Приглашения», чтобы продолжить.");
+  }
   const created = await createGroupWish({
-    db, form, members: state.members, uid: state.uid, nick: state.nick, today: mskToday()
+    db, form, members: state.members, uid: state.uid, nick: state.nick, today: mskToday(),
+    sourceSlot
   });
   telegram.notify("g",created.id).catch(e=>console.warn("Telegram group notify:",e.message));
   modalClose();
@@ -1169,7 +1185,7 @@ function cleanup() {
   for (const unsub of state.unsubs) try { unsub(); } catch { /* noop */ }
   state.unsubs = [];
   state.sent = []; state.received = []; state.slots = []; state.locks = []; state.members = []; state.manualGuests = [];
-  state.groupCalendar = []; state.groupsOrganized = []; state.groupsInvited = [];
+  state.groupCalendar = []; state.groupsOrganized = []; state.groupsInvited = []; state.groupJoinsSent=[]; state.groupJoinsReceived=[];
 }
 function listen() {
   cleanup();
@@ -1191,6 +1207,8 @@ function listen() {
   listenTo(collection(db, "groupCalendar"), items=>{state.groupCalendar=items;});
   listenTo(query(collection(db,"groupWishes"),where("organizerUid","==",state.uid)),items=>{state.groupsOrganized=items;});
   listenTo(query(collection(db,"groupWishes"),where("inviteeUids","array-contains",state.uid)),items=>{state.groupsInvited=items;});
+  listenTo(query(collection(db,"groupJoinRequests"),where("organizerUid","==",state.uid)),items=>{state.groupJoinsSent=items;});
+  listenTo(query(collection(db,"groupJoinRequests"),where("toUid","==",state.uid)),items=>{state.groupJoinsReceived=items;});
   listenTo(query(collection(db, "proposals"), where("fromUid", "==", state.uid)), (items) => { state.sent = items; });
   listenTo(query(collection(db, "proposals"), where("toUid", "==", state.uid)), (items) => { state.received = items; });
 }
@@ -1406,6 +1424,7 @@ document.addEventListener("click", async (event) => {
           flashMessage(conflicts.length
             ? "Коллаба подтверждена несмотря на "+conflicts.length+" пересечений. Остальные события сохранены."
             : "Общий слот подтверждён. Время занято у всех участников.");
+          if(fresh.group.sourceSlotId)await publishPublicSchedule();
           queueTwitchAutoPush();
         } else {
           await cancelGroupWish(db,group,state.uid);
