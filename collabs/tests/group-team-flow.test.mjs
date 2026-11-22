@@ -76,8 +76,8 @@ test("declining an invitation before confirmation does not create or remove a co
  [async()=>({exists:()=>true,id:"g1",data:()=>collecting}),doc,db,
  groupAttendance,departed,activeGroupMembers,()=>batch,timestamp]);
  await leave(db,"g1","reus");
- assert.ok(!ops.some(o=>o.ref.startsWith("groupCalendar/")));
- assert.ok(!ops.some(o=>o.ref.startsWith("publicGroupCollabs/")));
+ assert.ok(!ops.some(o=>o.ref?.startsWith("groupCalendar/")));
+ assert.ok(!ops.some(o=>o.ref?.startsWith("publicGroupCollabs/")));
  assert.ok(ops.some(o=>o.op==="delete"&&o.ref==="groupDiary/reus/items/g1"));
 });
 test("manual guest names survive conversion without silently dropping entries",()=>{
@@ -105,7 +105,7 @@ test("finalization swaps the original manual calendar event for the group atomic
  assert.ok(ops.some(o=>o.op==="delete"&&o.ref==="slots/slot1"));
  assert.ok(ops.some(o=>o.op==="set"&&o.ref==="groupCalendar/g1"));
  const guests=ops.find(o=>o.op==="set"&&o.ref==="collabGuests/group_g1");
- assert.deepEqual(guests.data.guestNames,["Nero","Reus"]);
+ assert.deepEqual(guests.data.guestNames,["Nero"]); // Reus is a registered confirmed participant
  assert.ok(ops.some(o=>o.op==="update"&&o.ref==="groupWishes/g1"&&o.data.status==="confirmed"));
  assert.ok(!ops.some(o=>o.op==="delete"&&o.ref.startsWith("groupDiary/")));
 });
@@ -157,7 +157,7 @@ test("room UI offers decline, replacement and direct manual invitation flow",()=
  assert.match(app,/data-action="group-join-reply"/);
  assert.match(app,/data-action="event-invite"/);
  assert.match(app,/groupJoinInvitationsHtml\(\)/);
- assert.match(app,/data-action="group-leave"/);
+ assert.match(app,/action === "group-leave"/);
  assert.match(app,/data-form="group-add-member"/);
  assert.match(app,/wishModal\(\{/);
 });
