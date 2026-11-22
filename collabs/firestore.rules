@@ -466,7 +466,9 @@ service cloud.firestore {
           && request.resource.data.inviteeUids ==
             resource.data.inviteeUids.concat([request.resource.data.inviteeUids[resource.data.inviteeUids.size()]])
           && request.resource.data.inviteeUids.toSet().size()==request.resource.data.inviteeUids.size()
-          && request.resource.data.inviteeNames.size()==request.resource.data.inviteeNames.size()+1
+          && request.resource.data.inviteeNames.size()==resource.data.inviteeNames.size()+1
+          && request.resource.data.inviteeNames ==
+            resource.data.inviteeNames.concat([request.resource.data.inviteeNames[resource.data.inviteeNames.size()]])
           && request.resource.data.inviteeNames[resource.data.inviteeNames.size()] is string
           && request.resource.data.inviteeNames[resource.data.inviteeNames.size()].size() <= 40
           && request.resource.data.inviteeNames[resource.data.inviteeNames.size()].size() >= 1
@@ -485,12 +487,14 @@ service cloud.firestore {
             resource.data.inviteeUids.concat([request.auth.uid])
           && !(request.auth.uid in resource.data.inviteeUids)
           && request.resource.data.inviteeNames.size()==resource.data.inviteeNames.size()+1
+          && request.resource.data.inviteeNames ==
+            resource.data.inviteeNames.concat([request.resource.data.inviteeNames[resource.data.inviteeNames.size()]])
           && groupActiveIds(request.resource.data).size() <= 11
           && isAllowed(request.auth.uid)
           && validGroupJoinTo(request.resource.data,groupId,request.auth.uid)
           && request.resource.data.updatedAt is timestamp)
         ||
-        // Cancellation may be initiated by any invited participant.
+        // Only the organizer may cancel the entire collaboration.
         (resource.data.status in ['collecting','confirmed']
           && request.auth.uid == resource.data.organizerUid
           && request.resource.data.status == 'cancelled'
