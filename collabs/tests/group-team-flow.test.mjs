@@ -154,7 +154,7 @@ test("declining a replacement invitation does not alter any group booking",async
 test("room UI offers decline, replacement and direct manual invitation flow",()=>{
  assert.match(code,/data-action="group-leave"/);
  assert.match(code,/data-action="group-add-member"/);
- assert.match(code,/data-action="group-join-reply"/, ""); // reply action is in app
+ assert.match(app,/data-action="group-join-reply"/);
  assert.match(app,/data-action="event-invite"/);
  assert.match(app,/groupJoinInvitationsHtml\(\)/);
  assert.match(app,/data-action="group-leave"/);
