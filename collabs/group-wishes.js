@@ -1,5 +1,5 @@
 import {
-  doc, collection, query, where, writeBatch, updateDoc, serverTimestamp, FieldPath, getDocFromServer, getDocsFromServer
+  doc, collection, query, where, writeBatch, updateDoc, arrayUnion, serverTimestamp, FieldPath, getDocFromServer, getDocsFromServer
 } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
 const { groupGuestNames, groupGuestRecordId } = await import("./group-guests.js" + moduleTag);
@@ -302,49 +302,46 @@ export async function respondGroupJoin(db,requestId,uid,accept){
   const invite={id:requestSnap.id,...requestSnap.data()};
   if(invite.toUid!==uid||invite.status!=="pending")
     throw new Error("На это приглашение уже ответили или оно предназначено другому человеку.");
-  const groupSnap=await getDocFromServer(doc(db,"groupWishes",invite.groupId));
-  if(!groupSnap.exists())throw new Error("Исходная коллаба не найдена.");
-  const group={id:groupSnap.id,...groupSnap.data()};
-  if(group.status!=="confirmed"||group.organizerUid!==invite.organizerUid ||
-     group.game!==invite.game)
-    throw new Error("Коллаба изменилась или отменена.");
-  const chosen=group.options[group.chosenIndex];
-  if(!chosen||chosen.date!==invite.date||chosen.start!==invite.start||
-    chosen.end!==invite.end)
-    throw new Error("Дата коллабы изменилась. Попроси новое приглашение.");
+  // Newcomers cannot read private groupWishes (past messages and choices).
+  // The confirmed groupCalendar is readable by all authorized room members.
+  const calendarSnap=await getDocFromServer(doc(db,"groupCalendar",invite.groupId));
+  if(!calendarSnap.exists())throw new Error("Коллаба больше не подтверждена.");
+  const calendar={id:calendarSnap.id,...calendarSnap.data()};
+  if(calendar.organizerUid!==invite.organizerUid || calendar.game!==invite.game ||
+    calendar.date!==invite.date||calendar.start!==invite.start||calendar.end!==invite.end)
+    throw new Error("Коллаба изменилась или отменена. Попроси новое приглашение.");
   const batch=writeBatch(db);
   batch.update(doc(db,"groupJoinRequests",requestId),{
     status:accept?"accepted":"declined",updatedAt:serverTimestamp()
   });
   if(accept){
-    if([group.organizerUid,...group.inviteeUids].includes(uid))
-      throw new Error("Участник уже был приглашён в эту коллабу.");
-    if(activeInvitees(group).length>=10||group.inviteeUids.length>=30)
+    if(calendar.participantsUids.includes(uid))
+      throw new Error("Ты уже участвуешь в этой коллабе.");
+    if(calendar.participantsUids.length>=11)
       throw new Error("В коллабе больше нет свободных мест.");
-    const amended={...group,inviteeUids:[...group.inviteeUids,uid],
-      inviteeNames:[...group.inviteeNames,invite.toName],lastJoinId:requestId};
-    const {ids,names}=activeGroupMembers(amended);
-    batch.update(doc(db,"groupWishes",group.id),{
-      inviteeUids:amended.inviteeUids,inviteeNames:amended.inviteeNames,
+    const ids=[...calendar.participantsUids,uid];
+    const names=[...calendar.participants,invite.toName];
+    // Atomic transforms append to the private group without reading it.
+    // Firestore Rules validate the accepted join request against getAfter().
+    batch.update(doc(db,"groupWishes",invite.groupId),{
+      inviteeUids:arrayUnion(uid),inviteeNames:arrayUnion(invite.toName),
       lastJoinId:requestId,updatedAt:serverTimestamp()
     });
-    batch.update(doc(db,"groupCalendar",group.id),{
+    batch.update(doc(db,"groupCalendar",invite.groupId),{
       participantsUids:ids,participants:names
     });
-    for(const personUid of activeGroupMembers(group).ids)
-      batch.update(doc(db,"groupDiary",personUid,"items",group.id),{
-        participants:names
-      });
-    batch.set(doc(db,"groupDiary",uid,"items",group.id),{
-      organizerUid:group.organizerUid,organizerName:group.organizerName,
-      participants:names,game:group.game,date:chosen.date,start:chosen.start,
-      end:chosen.end,status:"confirmed"
+    for(const otherUid of calendar.participantsUids)
+      batch.update(doc(db,"groupDiary",otherUid,"items",invite.groupId),{participants:names});
+    batch.set(doc(db,"groupDiary",uid,"items",invite.groupId),{
+      organizerUid:invite.organizerUid,organizerName:calendar.participants[0],
+      participants:names,game:invite.game,date:invite.date,start:invite.start,
+      end:invite.end,status:"confirmed"
     });
-    batch.set(doc(db,"publicGroupCollabs",uid,"items",group.id),{
-      type:"collab",date:chosen.date,start:chosen.start,end:chosen.end,
+    batch.set(doc(db,"publicGroupCollabs",uid,"items",invite.groupId),{
+      type:"collab",date:invite.date,start:invite.start,end:invite.end,
       game:"",partner:""
     });
   }
   await batch.commit();
-  return {accepted:accept,groupId:group.id};
+  return {accepted:accept,groupId:invite.groupId};
 }
