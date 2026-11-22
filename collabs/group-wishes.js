@@ -203,7 +203,7 @@ export async function finalizeGroupWish(db,group,uid,index){
   return chosen;
 }
 export async function cancelGroupWish(db,group,uid){
-  if(group.status==="cancelled"||!groupParticipants(group).includes(uid))throw new Error("Нет прав или коллаба уже отменена.");
+  if(group.status==="cancelled"||group.organizerUid!==uid)throw new Error("Только организатор может отменить коллабу для всех.");
   const batch=writeBatch(db);
   batch.update(doc(db,"groupWishes",group.id),{status:"cancelled",updatedAt:serverTimestamp()});
   if(group.status==="confirmed")batch.delete(doc(db,"groupCalendar",group.id));
