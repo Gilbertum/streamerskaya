@@ -103,6 +103,57 @@ test("rules: only a person can leave; their departure keeps the group, replaceme
    await assertFails(updateDoc(doc(fox,"groupWishes","g1"),{
      status:"cancelled",updatedAt:serverTimestamp()
    }));
+
+   // A manual collaboration can become a genuine group after invitees consent.
+   const manualGame="Ручная коллаба";
+   await env.withSecurityRulesDisabled(async context=>{
+     await setDoc(doc(context.firestore(),"slots","manual1"),{
+       ownerUid:"owner",...slot,type:"collab",title:manualGame,guestNick:"Nero, Лиса",
+       showGame:false,showGuest:false,public:true,details:"",updatedAt:Timestamp.now()
+     });
+   });
+   const newWish=writeBatch(owner);
+   newWish.set(doc(owner,"groupWishes","g2"),{
+     organizerUid:"owner",organizerName:"Xwaran",
+     inviteeUids:["new"],inviteeNames:["Новый"],game:manualGame,
+     message:"Пойдём играть",options:[slot],responses:{},
+     chosenIndex:-1,status:"collecting",sourceSlotId:"manual1",
+     createdAt:serverTimestamp(),updatedAt:serverTimestamp()
+   });
+   for(const id of ["owner","new"])
+     newWish.set(doc(owner,"groupDiary",id,"items","g2"),{
+       organizerUid:"owner",organizerName:"Xwaran",participants:["Xwaran","Новый"],
+       game:manualGame,...slot,status:"collecting"
+     });
+   await assertSucceeds(newWish.commit());
+   await assertSucceeds(updateDoc(doc(newcomer,"groupWishes","g2"),{
+     responses:{new:[0]},updatedAt:serverTimestamp()
+   }));
+   const convert=writeBatch(owner);
+   convert.update(doc(owner,"groupWishes","g2"),{
+     status:"confirmed",chosenIndex:0,updatedAt:serverTimestamp()
+   });
+   convert.set(doc(owner,"groupCalendar","g2"),{
+     organizerUid:"owner",participantsUids:["owner","new"],
+     participants:["Xwaran","Новый"],game:manualGame,...slot
+   });
+   for(const id of ["owner","new"]){
+     convert.update(doc(owner,"groupDiary",id,"items","g2"),{
+       status:"confirmed",participants:["Xwaran","Новый"],...slot
+     });
+     convert.set(doc(owner,"publicGroupCollabs",id,"items","g2"),publicMarker);
+   }
+   convert.set(doc(owner,"collabGuests","group_g2"),{
+     ownerUid:"owner",...slot,game:manualGame,
+     guestNames:["Nero","Лиса"],updatedAt:serverTimestamp()
+   });
+   convert.delete(doc(owner,"slots","manual1"));
+   await assertSucceeds(convert.commit());
+   assert.equal((await getDoc(doc(owner,"slots","manual1"))).exists(),false);
+   assert.deepEqual((await getDoc(doc(owner,"collabGuests","group_g2"))).data().guestNames,
+     ["Nero","Лиса"]);
+   assert.deepEqual((await getDoc(doc(owner,"groupCalendar","g2"))).data().participantsUids,
+     ["owner","new"]);
  }finally{
    await env.cleanup();
  }
