@@ -1,0 +1,31 @@
+name: Collab Room Firestore rules validation
+on:
+  pull_request:
+    paths:
+      - "collabs/firestore.rules"
+      - "collabs/security-tests/**"
+      - "collabs/firebase.json"
+      - ".github/workflows/collab-firestore-rules.yml"
+  push:
+    branches: [main]
+    paths:
+      - "collabs/firestore.rules"
+      - "collabs/firebase.json"
+      - ".github/workflows/collab-firestore-rules.yml"
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install isolated Firestore Rules test dependencies
+        run: npm install --prefix collabs/security-tests --no-save --no-audit --no-fund firebase@13.2.0 @firebase/rules-unit-testing@latest
+      - name: Compile and enforce group security in a local Firestore emulator
+        run: npx --yes firebase-tools@15 emulators:exec --project demo-collab-room --config collabs/firebase.json --only firestore --non-interactive "node --test collabs/security-tests/group-rules.test.mjs"

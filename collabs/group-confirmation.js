@@ -39,7 +39,7 @@ export function groupBookingConflicts(group,chosen,{slots=[],locks=[],groups=[],
     });
   };
   for(const slot of slots){
-    if(["free"].includes(slot.type))continue;
+    if(slot.type==="free" || (slot.id===group.sourceSlotId && slot.ownerUid===group.organizerUid))continue;
     const label=slotDescription(slot)+(slot.title?": "+slot.title:"")+
       (slot.type==="collab"&&slot.guestNick?" с "+slot.guestNick:"");
     add(slot.ownerUid,"slot",slot,label);
