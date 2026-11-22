@@ -628,7 +628,7 @@ function wishModal(sourceSlot=null) {
       (dm ? '<a class="wish-contact" href="' + dm + '" target="_blank" rel="noopener noreferrer">ЛС ↗</a>' : "") + '</div>';
   }).join("");
   modalOpen('<h2 id="modalTitle">✦ Хочу коллабу</h2><p class="muted">'+(sourceSlot?
-    'Приглашение к сохранённой ручной коллабе. Пока идут ответы, исходная запись останется. Когда подтвердишь общее время, ручная отметка заменится групповой коллабой, а невыбранные гости останутся в составе.':
+    'Приглашение к сохранённой ручной коллабе. Пока идут ответы, исходная запись останется. Когда подтвердишь общее время, ручная отметка заменится групповой коллабой, а невыбранные гости останутся в составе. Примечания исходной записи отдельно не переносятся: сохрани важный текст в сообщение или у себя.':
     'Укажи игру и до пяти вариантов времени. Выбери участников галочками — каждый отметит все подходящие варианты. Затем ты выберешь общий слот и подтвердишь его для всех.')+'</p>' +
     '<form data-form="wish" data-source-slot="' + h(sourceSlot?.id||"") + '"><div class="field"><label>Игра или идея *</label><input type="text" name="game" maxlength="90" placeholder="Например, The Forest" value="' + h(sourceSlot?.title||"") + '" required' + (sourceSlot?" readonly":"") + '></div>' +
     '<div class="section-bar" style="margin:18px 0 9px"><h3>Варианты даты и времени</h3>' + (sourceSlot?"":'<button class="button button-ghost small" type="button" data-action="add-wish-row">+ Ещё вариант</button>') + '</div>' +
