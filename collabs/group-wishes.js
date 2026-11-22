@@ -1,5 +1,5 @@
 import {
-  doc, collection, writeBatch, updateDoc, serverTimestamp, FieldPath, getDocFromServer, getDocsFromServer
+  doc, collection, query, where, writeBatch, updateDoc, serverTimestamp, FieldPath, getDocFromServer, getDocsFromServer
 } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 const moduleTag = new URL(import.meta.url).search || "?load=" + Date.now();
 const { groupGuestNames, groupGuestRecordId } = await import("./group-guests.js" + moduleTag);
@@ -277,6 +277,9 @@ export async function inviteGroupCandidate(db,groupId,uid,person){
     return {status:"collecting",candidate:nick};
   }
   const chosen=group.options[group.chosenIndex];
+  const previous=await getDocsFromServer(query(collection(db,"groupJoinRequests"),where("organizerUid","==",uid)));
+  if(previous.docs.some(d=>d.data().groupId===group.id && d.data().toUid===person.id && d.data().status==="pending"))
+    throw new Error("Приглашение этому человеку уже отправлено. Дождись его ответа.");
   const ref=doc(collection(db,"groupJoinRequests"));
   await writeJoinRequest(db,ref,{
     groupId:group.id,organizerUid:uid,toUid:person.id,toName:nick,
