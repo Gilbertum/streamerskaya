@@ -154,6 +154,35 @@ test("rules: only a person can leave; their departure keeps the group, replaceme
      ["Nero","Лиса"]);
    assert.deepEqual((await getDoc(doc(owner,"groupCalendar","g2"))).data().participantsUids,
      ["owner","new"]);
+
+   // The same one-person refusal must also work BEFORE the organizer chooses a date.
+   await env.withSecurityRulesDisabled(async ctx=>{
+     const admin=ctx.firestore();
+     await setDoc(doc(admin,"groupWishes","g3"),{
+       ...groupData,status:"collecting",chosenIndex:-1,responses:{}
+     });
+     for(const id of ["owner","fox","reus"]){
+       await setDoc(doc(admin,"groupDiary",id,"items","g3"),{
+         ...summary,status:"collecting"
+       });
+     }
+   });
+   const beforeFinal=writeBatch(reus);
+   beforeFinal.update(doc(reus,"groupWishes","g3"),{
+     departedUids:["reus"],updatedAt:serverTimestamp()
+   });
+   beforeFinal.update(doc(reus,"groupDiary","owner","items","g3"),{
+     participants:["Xwaran","Fox"]
+   });
+   beforeFinal.update(doc(reus,"groupDiary","fox","items","g3"),{
+     participants:["Xwaran","Fox"]
+   });
+   beforeFinal.delete(doc(reus,"groupDiary","reus","items","g3"));
+   await assertSucceeds(beforeFinal.commit());
+   assert.equal((await getDoc(doc(owner,"groupWishes","g3"))).data().status,
+     "collecting");
+   assert.equal((await getDoc(doc(owner,"groupDiary","reus","items","g3"))).exists(),
+     false);
  }finally{
    await env.cleanup();
  }
