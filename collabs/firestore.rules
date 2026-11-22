@@ -390,10 +390,37 @@ service cloud.firestore {
          g.chosenIndex in g.responses.get(g.inviteeUids[i], []));
     }
     function allGroupApprove(g) {
-      return groupApproves(g,0) && groupApproves(g,1) && groupApproves(g,2)
-        && groupApproves(g,3) && groupApproves(g,4) && groupApproves(g,5)
-        && groupApproves(g,6) && groupApproves(g,7) && groupApproves(g,8)
-        && groupApproves(g,9);
+      return groupActiveIds(g).size() >= 2 &&
+        groupApproves(g,0) &&
+        groupApproves(g,1) &&
+        groupApproves(g,2) &&
+        groupApproves(g,3) &&
+        groupApproves(g,4) &&
+        groupApproves(g,5) &&
+        groupApproves(g,6) &&
+        groupApproves(g,7) &&
+        groupApproves(g,8) &&
+        groupApproves(g,9) &&
+        groupApproves(g,10) &&
+        groupApproves(g,11) &&
+        groupApproves(g,12) &&
+        groupApproves(g,13) &&
+        groupApproves(g,14) &&
+        groupApproves(g,15) &&
+        groupApproves(g,16) &&
+        groupApproves(g,17) &&
+        groupApproves(g,18) &&
+        groupApproves(g,19) &&
+        groupApproves(g,20) &&
+        groupApproves(g,21) &&
+        groupApproves(g,22) &&
+        groupApproves(g,23) &&
+        groupApproves(g,24) &&
+        groupApproves(g,25) &&
+        groupApproves(g,26) &&
+        groupApproves(g,27) &&
+        groupApproves(g,28) &&
+        groupApproves(g,29);
     }
     match /groupWishes/{groupId} {
       allow get, list: if member() && groupMember(resource.data, request.auth.uid);
