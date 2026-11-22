@@ -32,9 +32,11 @@ export function groupCandidateList(group,members,availability){
 }
 export function manualGuestNames(text,registeredNames=[]){
   const known=new Set(registeredNames.map(n=>String(n||"").trim().toLocaleLowerCase("ru-RU")));
-  return [...new Set(String(text||"").split(/[,;\n]+/).map(n=>n.trim())
-    .filter(Boolean).filter(n=>n.length<=40)
-    .filter(n=>!known.has(n.toLocaleLowerCase("ru-RU"))))].slice(0,15);
+  const guests=[...new Set(String(text||"").split(/[,;\n]+/).map(n=>n.trim())
+    .filter(Boolean).filter(n=>!known.has(n.toLocaleLowerCase("ru-RU"))))];
+  if(guests.length>15||guests.some(n=>n.length>40))
+    throw new Error("Не больше 15 гостей, каждый ник — до 40 символов. Исправь ручной список перед подтверждением.");
+  return guests;
 }
 export function matchingManualSlot(slot,group,chosen){
   return !!slot && !!group && slot.id===group.sourceSlotId &&
