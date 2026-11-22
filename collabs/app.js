@@ -336,7 +336,9 @@ function groupAddMemberModal(id){
   const group=state.groupsOrganized.find(g=>g.id===id);
   if(!group||!["collecting","confirmed"].includes(group.status))
     throw new Error("Только организатор может приглашать людей в активную коллабу.");
-  const people=groupCandidateList(group,state.members,(uid,slot)=>availability(uid,slot));
+  const pendingRecipients=new Set(state.groupJoinsSent.filter(x=>x.groupId===id&&x.status==="pending").map(x=>x.toUid));
+  const people=groupCandidateList(group,state.members,(uid,slot)=>availability(uid,slot))
+    .filter(person=>!pendingRecipients.has(person.id));
   const label=group.status==="confirmed"?"Подтверждённая дата":"Подходит хотя бы один предложенный вариант";
   const options=people.map(p=>'<option value="'+h(p.id)+'">'+h(p.nick)+' — '+
     (p.availability==="free"?"время свободно":"под вопросом")+'</option>').join("");
