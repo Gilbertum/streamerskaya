@@ -9,14 +9,34 @@ on:
 permissions:
   contents: read
   pages: write
+  id-token: write
+
+concurrency:
+  group: collab-room-pages
+  cancel-in-progress: false
 
 jobs:
-  rebuild:
+  deploy:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Request a GitHub Pages branch build at current main
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Checkout latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Assemble static Collab Room site
         run: |
-          gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/builds"
+          mkdir -p dist/collabs
+          cp index.html dist/index.html
+          rsync -a collabs/ dist/collabs/ --exclude='tests/' --exclude='security-tests/' --exclude='firestore.rules' --exclude='firebase.json' --exclude='README.md'
+          touch dist/.nojekyll
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
