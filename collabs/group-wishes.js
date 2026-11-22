@@ -19,7 +19,7 @@ export function groupCollections(groupsA, groupsB) {
 export function groupIsConfirmed(g){return g.status==="confirmed"&&Number.isInteger(g.chosenIndex)&&!!g.options?.[g.chosenIndex];}
 export function groupChosen(g){return groupIsConfirmed(g)?g.options[g.chosenIndex]:null;}
 export function groupCommon(g){
-  if(g.status!=="collecting")return [];
+  if(g.status!=="collecting" || !activeInvitees(g).length)return [];
   return g.options.map((o,i)=>({ ...o,index:i })).filter(o=>
     activeInvitees(g).every(uid=>Array.isArray(g.responses?.[uid])&&g.responses[uid].includes(o.index)));
 }
