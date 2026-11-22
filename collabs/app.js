@@ -610,11 +610,11 @@ function eventModal(id) {
     '<div class="form-actions full">' + (item ? '<button type="button" class="button button-subtle" data-action="delete-event" data-id="' + h(id) + '">Удалить</button>' : "") +
     '<button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button><button type="submit" class="button">Сохранить</button></div></form>');
 }
-function wishTimeRow(index, date = (state.date >= mskToday() ? state.date : mskToday()), start = "20:00", end = "23:00") {
+function wishTimeRow(index, date = (state.date >= mskToday() ? state.date : mskToday()), start = "20:00", end = "23:00", locked=false) {
   return '<div class="wish-time-row" data-wish-row><span class="wish-number">Вариант ' + (index + 1) + '</span>' +
-    '<div class="field"><label>Дата</label><input type="date" name="wishDate" value="' + h(date) + '" required></div>' +
-    '<div class="field"><label>Начало, МСК</label><input type="time" name="wishStart" value="' + h(start) + '" required></div>' +
-    '<div class="field"><label>Конец, МСК</label><input type="time" name="wishEnd" value="' + h(end) + '" required></div>' +
+    '<div class="field"><label>Дата</label><input type="date" name="wishDate" value="' + h(date) + '"'+(locked?" readonly":"")+' required></div>' +
+    '<div class="field"><label>Начало, МСК</label><input type="time" name="wishStart" value="' + h(start) + '"'+(locked?" readonly":"")+' required></div>' +
+    '<div class="field"><label>Конец, МСК</label><input type="time" name="wishEnd" value="' + h(end) + '"'+(locked?" readonly":"")+' required></div>' +
     '<button type="button" class="button button-ghost tiny" data-action="remove-wish-row" aria-label="Удалить вариант">×</button></div>';
 }
 function wishModal(sourceSlot=null) {
@@ -632,7 +632,7 @@ function wishModal(sourceSlot=null) {
     'Укажи игру и до пяти вариантов времени. Выбери участников галочками — каждый отметит все подходящие варианты. Затем ты выберешь общий слот и подтвердишь его для всех.')+'</p>' +
     '<form data-form="wish" data-source-slot="' + h(sourceSlot?.id||"") + '"><div class="field"><label>Игра или идея *</label><input type="text" name="game" maxlength="90" placeholder="Например, The Forest" value="' + h(sourceSlot?.title||"") + '" required' + (sourceSlot?" readonly":"") + '></div>' +
     '<div class="section-bar" style="margin:18px 0 9px"><h3>Варианты даты и времени</h3>' + (sourceSlot?"":'<button class="button button-ghost small" type="button" data-action="add-wish-row">+ Ещё вариант</button>') + '</div>' +
-    '<div id="wishRows" class="wish-rows">' + wishTimeRow(0,sourceSlot?.date||undefined,sourceSlot?.start||"20:00",sourceSlot?.end||"23:00") + '</div>' +
+    '<div id="wishRows" class="wish-rows">' + wishTimeRow(0,sourceSlot?.date||undefined,sourceSlot?.start||"20:00",sourceSlot?.end||"23:00",!!sourceSlot) + '</div>' +
     (sourceSlot?'<p class="tiny-note">При приглашении из ручной коллабы доступен только её сохранённый день и время. Чтобы изменить время, сначала отредактируй событие.</p>':"") +
     '<div class="section-bar" style="margin:22px 0 9px"><h3>Кого пригласить</h3><span class="tiny-note">До 10 участников</span></div>' +
     (people ? '<div class="wish-people">' + people + '</div>' : '<div class="notice info">В комнате пока нет других участников.</div>') +
@@ -1253,8 +1253,14 @@ function listen() {
   listenTo(collection(db, "groupCalendar"), items=>{state.groupCalendar=items;});
   listenTo(query(collection(db,"groupWishes"),where("organizerUid","==",state.uid)),items=>{state.groupsOrganized=items;});
   listenTo(query(collection(db,"groupWishes"),where("inviteeUids","array-contains",state.uid)),items=>{state.groupsInvited=items;});
-  listenTo(query(collection(db,"groupJoinRequests"),where("organizerUid","==",state.uid)),items=>{state.groupJoinsSent=items;});
-  listenTo(query(collection(db,"groupJoinRequests"),where("toUid","==",state.uid)),items=>{state.groupJoinsReceived=items;});
+  // Optional until new Firebase Rules are published; old features must still work.
+  const optionalJoins=(field,key)=>state.unsubs.push(onSnapshot(
+    query(collection(db,"groupJoinRequests"),where(field,"==",state.uid)),
+    snap=>{state[key]=snap.docs.map(d=>({id:d.id,...d.data()}));update();},
+    err=>{console.warn("Дополнительные приглашения: нужны новые Firestore Rules",err.code||err.message);}
+  ));
+  optionalJoins("organizerUid","groupJoinsSent");
+  optionalJoins("toUid","groupJoinsReceived");
   listenTo(query(collection(db, "proposals"), where("fromUid", "==", state.uid)), (items) => { state.sent = items; });
   listenTo(query(collection(db, "proposals"), where("toUid", "==", state.uid)), (items) => { state.received = items; });
 }
