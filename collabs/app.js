@@ -11,7 +11,8 @@ const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, fresh
 const { groupBookingConflicts, groupConflictWarning } = await import("./group-confirmation.js" + moduleTag);
 const { groupGuestRecordId, groupGuestNames, parseGroupGuestNames, groupGuestRecord } = await import("./group-guests.js" + moduleTag);
 const { groupAttendance, activeGroupMembers, groupCandidateList } = await import("./group-team.js" + moduleTag);
-const { validMoveWindow, freshMoveContext, moveGroupForEveryone } = await import("./reschedule.js" + moduleTag);
+const { validMoveWindow, freshMoveContext, moveGroupForEveryone,
+  freshPartyMoveContext, movePartyForEveryone } = await import("./reschedule.js" + moduleTag);
 const { availabilityText, validBirthday, upcomingBirthdays } = await import("./member-profile.js" + moduleTag);
 const { ROSTER_TYPE, rosterPreference, projectRoster, rebuildRosterProjections } = await import("./public-collab-roster.js" + moduleTag);
 const { startPublicView } = await import("./views.js" + moduleTag);
@@ -260,7 +261,9 @@ function renderCalendar() {
       isLock ? (' · с ' + nameOf(item.fromUid === state.uid ? item.toUid : item.fromUid))
       : item.type === "collab" && item.guestNick ? " · с "+item.guestNick : "";
     const controls = isParty
-      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="party-details" data-id="' + h(item.id) + '">Участники и управление</button></div>'
+      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="party-details" data-id="' + h(item.id) + '">Участники и управление</button>'+
+        (item.fromUid===state.uid?'<button class="button tiny" data-action="move-party" data-id="'+h(item.id)+'">Перенести коллабу</button>':"")+
+        '</div>'
       : isGroup
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="group-details" data-id="' + h(item.id) + '">Состав и зрители</button>' +
         (item.organizerUid===state.uid?'<button class="button tiny" data-action="move-group" data-id="'+h(item.id)+'">Перенести коллабу</button>':'')+
@@ -334,6 +337,49 @@ function groupJoinInvitationsHtml(){
       actions+'</article>';
   }).join("");
   return '<section class="panel" style="margin-bottom:20px"><h2>Дополнительные приглашения в коллабы</h2>'+cards+'</section>';
+}
+function movePartyModal(lockId){
+  const party=partyForLock(state.locks,lockId,nameOf,state.manualGuests);
+  if(!party||party.fromUid!==state.uid)
+    throw new Error("Перенести коллабу для всех может только организатор.");
+  modalOpen('<h2 id="modalTitle">Перенести коллабу у всех</h2>'+
+    '<p class="sub">'+h(party.game)+' · '+(party.participants||[]).map(h).join(", ")+'</p>'+
+    '<p class="tiny-note">Сейчас: '+h(dateLabel(party.date))+' · '+fmtTime(party)+' МСК. Все подтверждённые участники получат новую дату в Collab Room без повторных приглашений.</p>'+
+    '<form data-form="move-party" data-id="'+h(lockId)+'">'+
+    '<div class="form-grid">'+
+    '<div class="field"><label>Новая дата (МСК)</label><input name="date" type="date" value="'+h(party.date)+'" required></div>'+
+    '<div class="field"><label>Начало (МСК)</label><input name="start" type="time" value="'+h(party.start)+'" required></div>'+
+    '<div class="field"><label>Конец (МСК)</label><input name="end" type="time" value="'+h(party.end)+'" required></div>'+
+    '</div><p class="tiny-note">Оставшиеся участники, ники гостей и настройки публичности сохраняются. При пересечении с чужими планами будет предупреждение. Экспортированные ранее эфиры в Twitch нужно обновить отдельно.</p>'+
+    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Отмена</button>'+
+    '<button class="button" type="submit">Перенести у всех</button></div></form>');
+}
+async function savePartyMove(form){
+  const party=partyForLock(state.locks,form.dataset.id,nameOf,state.manualGuests);
+  if(!party||party.fromUid!==state.uid)throw new Error("Коллаба уже изменена или недоступна.");
+  const target={date:form.elements.date.value,start:form.elements.start.value,end:form.elements.end.value};
+  if(!validMoveWindow(target))throw new Error("Укажи корректную дату и время МСК.");
+  const fresh=await freshPartyMoveContext(db,party,state.uid);
+  const moving=new Set(fresh.selected.map(lock=>lock.id));
+  const groupLike={organizerUid:party.fromUid,organizerName:nameOf(party.fromUid),
+    inviteeUids:fresh.selected.map(lock=>lock.toUid),
+    inviteeNames:fresh.selected.map(lock=>nameOf(lock.toUid))};
+  const conflicts=groupBookingConflicts(groupLike,target,{
+    slots:fresh.slots,groups:fresh.groups,members:fresh.members,
+    locks:fresh.locks.filter(lock=>!moving.has(lock.id))
+  });
+  if(conflicts.length){
+    const description=conflicts.slice(0,8).map(x=>x.nick+": "+x.label+
+      " ("+x.date+" "+x.start+"–"+x.end+")").join("\n");
+    if(!confirm("У некоторых участников новое время занято:\n\n"+description+
+      "\n\nВсё равно перенести коллабу у всех?"))return;
+  }
+  const result=await movePartyForEveryone(db,fresh,target,state.uid,
+    partySessionId(party),partySessionId({...party,...target}));
+  modalClose();state.date=target.date;state.month=target.date.slice(0,7);
+  render();
+  flashMessage("Коллаба перенесена у "+result.participants+
+    " участников на "+dateLabel(target.date)+", "+target.start+"–"+target.end+" МСК.");
 }
 function moveGroupModal(id){
   const group=state.groupCalendar.find(g=>g.id===id&&g.organizerUid===state.uid);
@@ -996,6 +1042,7 @@ async function collabPartyModal(lockId) {
     (pending.length ? '<p class="tiny-note" style="margin-top:15px">Ещё ожидают ответа: ' +
       h([...new Set(pending)].join(", ")) + '</p>' : "") +
     '<p class="tiny-note">Управление отдельным участником не отменяет участие остальных. Состав обновляется после новых подтверждений.</p>' +
+    (party.fromUid===state.uid?'<div class="form-actions"><button class="button" data-action="move-party" data-id="'+h(party.id)+'">Перенести коллабу у всех</button></div>':"") +
     rosterControls("party",publicId,preference)+
     '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Закрыть</button></div>');
 }
@@ -1512,6 +1559,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if(action==="move-group"){moveGroupModal(target.dataset.id);return;}
+    if(action==="move-party"){movePartyModal(target.dataset.id);return;}
     if (action === "group-add-member"){
       groupAddMemberModal(target.dataset.id);return;
     }
@@ -1661,6 +1709,7 @@ document.addEventListener("submit", async (event) => {
     else if (state.authorized && type === "party-add") await addPartyParticipants(form);
     else if (state.authorized && type === "group-guests") await saveGroupGuests(form);
     else if(state.authorized&&type==="move-group")await saveGroupMove(form);
+    else if(state.authorized&&type==="move-party")await savePartyMove(form);
     else if (state.authorized && type === "group-add-member"){
       const group=state.groupsOrganized.find(g=>g.id===form.dataset.id);
       const member=state.members.find(m=>m.id===form.elements.memberUid.value);
