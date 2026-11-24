@@ -54,12 +54,13 @@ export function publicCollabEvents({slots=[],direct=[],groups=[],projections=[]}
       partner:match?overlay.partner:(group.partner||"")});
   }
   for(const projected of extra.filter(p=>p.kind==="party")){
-    const found=direct.filter(e=>projected.sourceIds?.includes(e.id) &&
-      e.date===projected.date && e.start===projected.start && e.end===projected.end);
+    // Proposal/lock IDs survive a reschedule. Keep the original privacy opt-in
+    // while using the NEW time from the actual public marker.
+    const found=direct.filter(e=>projected.sourceIds?.includes(e.id));
     if(!found.length)continue; // Do not expose an orphaned public schedule entry.
     for(const entry of found)used.add(entry.id);
-    events.push({type:"collab",date:projected.date,
-      start:projected.start,end:projected.end,
+    events.push({type:"collab",date:found[0].date,
+      start:found[0].start,end:found[0].end,
       game:projected.game,partner:projected.partner});
   }
   return {slots,events,remainingDirect:direct.filter(e=>!used.has(e.id))};
