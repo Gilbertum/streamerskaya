@@ -28,4 +28,4 @@ jobs:
       - name: Install isolated Firestore Rules test dependencies
         run: npm install --prefix collabs/security-tests --no-save --no-audit --no-fund firebase@13.2.0 @firebase/rules-unit-testing@latest
       - name: Compile and enforce group security in a local Firestore emulator
-        run: npx --yes firebase-tools@15 emulators:exec --project demo-collab-room --config collabs/firebase.json --only firestore --non-interactive "node --test collabs/security-tests/group-rules.test.mjs"
+        run: npx --yes firebase-tools@15 emulators:exec --project demo-collab-room --config collabs/firebase.json --only firestore --non-interactive "node --test --test-concurrency=1 collabs/security-tests/*.test.mjs"

@@ -51,7 +51,8 @@ test("only matching published markers reveal opt-in group roster",()=>{
     "Hell_Fox_X, kzlk_90, Онарка");
   assert.equal(publicCollabEvents({groups:[],projections:[projected]}).events.length,0);
   const stale=publicCollabEvents({groups:[{...marker,date:"2026-11-18"}],projections:[projected]});
-  assert.equal(stale.events[0].partner,"");
+  assert.equal(stale.events[0].partner,"Hell_Fox_X, kzlk_90, Онарка");
+  assert.equal(stale.events[0].date,"2026-11-18");
 });
 test("multiple confirmed direct participants are listed when the viewer has ONE public marker",()=>{
   const locks=[
@@ -73,6 +74,17 @@ test("multiple confirmed direct participants are listed when the viewer has ONE 
   assert.equal(page.events[0].partner,"Xwaran, Player_2, Гость вне сервиса");
   assert.equal(page.remainingDirect.length,0);
   assert.equal(publicCollabEvents({direct:[],projections:[doc]}).events.length,0);
+});
+test("rescheduled direct collab preserves prior opt-in and uses the new public time",()=>{
+  const old={type:ROSTER_TYPE,kind:"party",sourceId:"old-session",sourceIds:["lock1","lock2"],
+    date:"2026-11-17",start:"21:00",end:"01:00",
+    game:"Co-op",partner:"Друг, Гость",showGame:true,showParticipants:true};
+  const card=publicCollabEvents({direct:[{id:"lock1",date:"2026-11-22",
+    start:"17:00",end:"22:00",type:"collab",game:"",partner:""}],projections:[old]});
+  assert.equal(card.events.length,1);
+  assert.equal(card.events[0].date,"2026-11-22");
+  assert.equal(card.events[0].partner,"Друг, Гость");
+  assert.equal(card.remainingDirect.length,0);
 });
 test("unrelated events at the same time never inherit another group's names",()=>{
   const doc=projectRoster(preference("group","g1"),context);
