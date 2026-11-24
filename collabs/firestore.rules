@@ -778,7 +778,7 @@ service cloud.firestore {
         && d.keys().hasOnly(['ownerUid','date','start','end','game','guestNames','updatedAt'])
         && d.ownerUid == request.auth.uid
         && goodDate(d.date) && goodTime(d.start) && goodTime(d.end)
-        && d.start != d.end
+        && goodWindow(d)
         && d.game is string && d.game.size() >= 1 && d.game.size() <= 90
         && d.guestNames is list && d.guestNames.size() <= 15
         && d.guestNames.toSet().size() == d.guestNames.size()
