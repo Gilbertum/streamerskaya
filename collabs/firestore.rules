@@ -389,6 +389,30 @@ service cloud.firestore {
         (g.responses.get(g.inviteeUids[i], []) is list &&
          g.chosenIndex in g.responses.get(g.inviteeUids[i], []));
     }
+    function unchangedOtherOption(oldGroup,newGroup,i) {
+      return oldGroup.options.size() <= i || i == oldGroup.chosenIndex ||
+        oldGroup.options[i] == newGroup.options[i];
+    }
+    function validGroupMove(oldGroup,newGroup,groupId) {
+      return oldGroup.status == 'confirmed'
+        && newGroup.status == 'confirmed'
+        && newGroup.chosenIndex == oldGroup.chosenIndex
+        && newGroup.options is list
+        && newGroup.options.size() == oldGroup.options.size()
+        && validGroupOptions(newGroup.options)
+        && unchangedOtherOption(oldGroup,newGroup,0)
+        && unchangedOtherOption(oldGroup,newGroup,1)
+        && unchangedOtherOption(oldGroup,newGroup,2)
+        && unchangedOtherOption(oldGroup,newGroup,3)
+        && unchangedOtherOption(oldGroup,newGroup,4)
+        && newGroup.options[newGroup.chosenIndex] != oldGroup.options[oldGroup.chosenIndex]
+        && getAfter(/databases/$(database)/documents/groupCalendar/$(groupId)).data.date ==
+          newGroup.options[newGroup.chosenIndex].date
+        && getAfter(/databases/$(database)/documents/groupCalendar/$(groupId)).data.start ==
+          newGroup.options[newGroup.chosenIndex].start
+        && getAfter(/databases/$(database)/documents/groupCalendar/$(groupId)).data.end ==
+          newGroup.options[newGroup.chosenIndex].end;
+    }
     function allGroupApprove(g) {
       return groupActiveIds(g).size() >= 2 &&
         groupApproves(g,0) &&
@@ -445,6 +469,12 @@ service cloud.firestore {
           && request.resource.data.chosenIndex >= 0
           && request.resource.data.chosenIndex < resource.data.options.size()
           && allGroupApprove(request.resource.data))
+        ||
+        // Only the organizer may reschedule a confirmed group for everyone.
+        (request.auth.uid == resource.data.organizerUid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['options','updatedAt'])
+          && request.resource.data.updatedAt is timestamp
+          && validGroupMove(resource.data,request.resource.data,groupId))
         ||
         // A recipient leaves without modifying the original invitation list.
         (resource.data.status in ['collecting','confirmed']
@@ -621,8 +651,15 @@ service cloud.firestore {
       allow delete: if member() && groupDoc(groupId).status == 'cancelled'
         && groupMember(groupDoc(groupId),request.auth.uid);
       allow update: if member() && validGroupCalendar(request.resource.data,groupId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-          ['participantsUids','participants'])
+        && (
+          (request.auth.uid == resource.data.organizerUid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+              ['date','start','end'])
+            && request.resource.data.participantsUids == resource.data.participantsUids
+            && request.resource.data.participants == resource.data.participants)
+          ||
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+            ['participantsUids','participants'])
         && (
           (request.auth.uid in groupDoc(groupId).get('departedUids',[])
             && request.auth.uid in resource.data.participantsUids
@@ -635,6 +672,7 @@ service cloud.firestore {
             && validGroupJoinTo(groupDoc(groupId),groupId,request.auth.uid)
             && groupDoc(groupId).get('lastJoinId','') !=
               get(/databases/$(database)/documents/groupWishes/$(groupId)).data.get('lastJoinId',''))
+        ))
         );
     }
 
@@ -658,8 +696,13 @@ service cloud.firestore {
           || (request.auth.uid == ownerUid && validGroupJoinTo(groupDoc(groupId),groupId,ownerUid)))
         && goodGroupPublic(request.resource.data,groupId,ownerUid)
         && request.resource.data.game == '' && request.resource.data.partner == '';
-      allow update: if member() && me(ownerUid)
-        && goodGroupPublic(request.resource.data,groupId,ownerUid);
+      allow update: if member() && goodGroupPublic(request.resource.data,groupId,ownerUid)
+        && (me(ownerUid) ||
+          (request.auth.uid == groupDoc(groupId).organizerUid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+              ['date','start','end'])
+            && request.resource.data.game == resource.data.game
+            && request.resource.data.partner == resource.data.partner));
       allow delete: if member() &&
         ((groupDoc(groupId).status == 'cancelled'
           && groupMember(groupDoc(groupId),request.auth.uid)
