@@ -821,9 +821,14 @@ function rosterControls(kind,sourceId,previous){
     '<p class="tiny-note">По умолчанию подробности скрыты. Прежде чем открыть ники для чата, согласуй это с участниками. При выключении обоих пунктов зрители видят только отметку «Коллаба».</p>'+
     '<div class="form-actions"><button class="button" type="submit">Сохранить видимость для чата</button></div></form></section>';
 }
-async function currentRosterPreference(kind,id){
+async function currentRosterPreference(kind,id,party=null){
   const snapshot=await getDocFromServer(doc(db,"publicSchedules",state.uid));
-  return rosterPreference(snapshot.exists()?snapshot.data().events:[],kind,id);
+  const events=snapshot.exists()?snapshot.data().events||[]:[];
+  const exact=rosterPreference(events,kind,id);
+  if(exact||kind!=="party"||!party)return exact;
+  const locks=new Set((party.locks||[]).map(x=>x.id));
+  return events.find(e=>e.type===ROSTER_TYPE&&e.kind==="party"&&
+    e.sourceIds?.some(lockId=>locks.has(lockId)))||null;
 }
 async function saveCollabRosterVisibility(form){
   const kind=form.dataset.kind,sourceId=form.dataset.id;
@@ -842,7 +847,9 @@ async function saveCollabRosterVisibility(form){
   const showParticipants=form.elements.showParticipants.checked;
   const snapshot=await getDocFromServer(doc(db,"publicSchedules",state.uid));
   const existing=snapshot.exists()&&Array.isArray(snapshot.data().events)?snapshot.data().events:[];
-  const updated=existing.filter(e=>!(e.type===ROSTER_TYPE&&e.kind===kind&&e.sourceId===sourceId));
+  const partyLocks=new Set(party?.locks?.map(l=>l.id)||[]);
+  const updated=existing.filter(e=>!(e.type===ROSTER_TYPE&&e.kind===kind&&
+    (e.sourceId===sourceId || (party && e.sourceIds?.some(id=>partyLocks.has(id))))));
   if(showGame||showParticipants){
     const projection=projectRoster({type:ROSTER_TYPE,kind,sourceId,showGame,showParticipants},context);
     if(!projection)throw new Error("Не удалось собрать подтверждённый состав. Обнови страницу.");
@@ -1000,7 +1007,7 @@ async function collabPartyModal(lockId) {
     throw new Error("Коллаба уже отменена или недоступна.");
   }
   const publicId=partySessionId(party);
-  const preference=await currentRosterPreference("party",publicId);
+  const preference=await currentRosterPreference("party",publicId,party);
   const head = '<h2 id="modalTitle">Участники коллабы</h2>' +
     '<p class="sub">' + h(party.game || "Игра не указана") + ' · ' +
     h(dateLabel(party.date)) + ' · ' + fmtTime(party) + ' МСК</p>' +
