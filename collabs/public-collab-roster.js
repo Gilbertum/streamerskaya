@@ -46,8 +46,9 @@ export function publicCollabEvents({slots=[],direct=[],groups=[],projections=[]}
   const used=new Set(),events=[];
   for(const group of groups){
     const overlay=rosterPreference(extra,"group",group.id);
-    const match=overlay && overlay.date===group.date &&
-      overlay.start===group.start && overlay.end===group.end;
+    // The stable group ID, not the time, owns the opt-in. A reschedule only
+    // changes the public marker time; the owner's privacy choice survives.
+    const match=!!overlay;
     events.push({...group,type:"collab",
       game:match?overlay.game:(group.game||""),
       partner:match?overlay.partner:(group.partner||"")});
