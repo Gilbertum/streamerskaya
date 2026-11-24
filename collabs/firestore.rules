@@ -189,6 +189,20 @@ service cloud.firestore {
             && resource.data.status == 'accepted'
             && request.resource.data.status == 'cancelled'
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt']))
+          ||
+          // Accepted direct collab: organizer reschedules with the linked lock,
+          // keeping prior consent, game, attendees and the private message.
+          (resource.data.fromUid == request.auth.uid
+            && resource.data.status == 'accepted'
+            && request.resource.data.status == 'accepted'
+            && goodWindow(request.resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['date','start','end'])
+            && (request.resource.data.date != resource.data.date ||
+              request.resource.data.start != resource.data.start ||
+              request.resource.data.end != resource.data.end)
+            && getAfter(/databases/$(database)/documents/collabLocks/$(proposalId)).data.date == request.resource.data.date
+            && getAfter(/databases/$(database)/documents/collabLocks/$(proposalId)).data.start == request.resource.data.start
+            && getAfter(/databases/$(database)/documents/collabLocks/$(proposalId)).data.end == request.resource.data.end)
         );
       allow delete: if false;
     }
@@ -210,7 +224,17 @@ service cloud.firestore {
         && request.resource.data.toName == getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toName;
       allow delete: if member()
         && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
-      allow update: if false;
+      allow update: if member()
+        && request.auth.uid == resource.data.fromUid
+        && goodLock(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['date','start','end'])
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.status == 'accepted'
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.fromUid == resource.data.fromUid
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.toUid == resource.data.toUid
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.game == resource.data.game
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.date == request.resource.data.date
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.start == request.resource.data.start
+        && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.end == request.resource.data.end;
     }
 
     // Публичный раздел содержит ОТДЕЛЬНУЮ копию только выбранных стримов.
@@ -296,9 +320,17 @@ service cloud.firestore {
           (ownerUid == request.auth.uid)
         );
 
-      // Пользователь не может менять публичные поля партнёра.
-      allow update: if member() && me(ownerUid)
-        && validPublicMarker(request.resource.data, ownerUid, proposalId);
+      // The organizer may move ONLY the time of both members' public markers.
+      // Each member's chosen game/partner visibility remains unchanged.
+      allow update: if member()
+        && validPublicMarker(request.resource.data, ownerUid, proposalId)
+        && (me(ownerUid) ||
+          (request.auth.uid ==
+            getAfter(/databases/$(database)/documents/collabLocks/$(proposalId)).data.fromUid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+              ['date','start','end'])
+            && request.resource.data.game == resource.data.game
+            && request.resource.data.partner == resource.data.partner));
 
       allow delete: if member()
         && getAfter(/databases/$(database)/documents/proposals/$(proposalId)).data.status == 'cancelled'
