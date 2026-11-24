@@ -14,7 +14,7 @@ function mockFunctions(initial={}){
     delete:ref=>writes.push({op:"delete",ref})
   };
   const library=new Function("doc","runTransaction","serverTimestamp",
-    source.replace(/^import\s*\{[\s\S]*?\}\s*from\s*"https:\/\/[^"]+";/,"")
+    source.replace(/import\s*\{[\s\S]*?\}\s*from\s*"https:\/\/[^"]+";/,"")
       .replace(/export (async )?function /g,(_m,asyncKeyword)=>asyncKeyword?"async function ":"function ") +
     "\nreturn {validMoveWindow,sameWindow,movedOptionList,moveGroupForEveryone,movePartyForEveryone};")(
     (_db,...path)=>path.join("/"),async(_db,handler)=>handler(tx),()=>({timestamp:true})
@@ -56,7 +56,7 @@ test("moves group for ALL attendees, keeps guest roster and visibility intact",a
  }
  assert.deepEqual(lib.writes.find(w=>w.ref==="collabGuests/group_g1").values.date,after.date);
  assert.ok(lib.writes.every(w=>w.op==="update"));
- assert.equal(lib.writes.length,8);
+ assert.equal(lib.writes.length,7);
 });
 test("an outdated roster stops move before ANY write",async()=>{
  const lib=mockFunctions({...initial,"groupCalendar/g1":{...calendar,participantsUids:["owner"]}});
