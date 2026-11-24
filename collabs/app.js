@@ -11,6 +11,7 @@ const { groupCollections, groupInboxHtml, createGroupWish, replyGroupWish, fresh
 const { groupBookingConflicts, groupConflictWarning } = await import("./group-confirmation.js" + moduleTag);
 const { groupGuestRecordId, groupGuestNames, parseGroupGuestNames, groupGuestRecord } = await import("./group-guests.js" + moduleTag);
 const { groupAttendance, activeGroupMembers, groupCandidateList } = await import("./group-team.js" + moduleTag);
+const { validMoveWindow, freshMoveContext, moveGroupForEveryone } = await import("./reschedule.js" + moduleTag);
 const { availabilityText, validBirthday, upcomingBirthdays } = await import("./member-profile.js" + moduleTag);
 const { ROSTER_TYPE, rosterPreference, projectRoster, rebuildRosterProjections } = await import("./public-collab-roster.js" + moduleTag);
 const { startPublicView } = await import("./views.js" + moduleTag);
@@ -261,7 +262,9 @@ function renderCalendar() {
     const controls = isParty
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="party-details" data-id="' + h(item.id) + '">Участники и управление</button></div>'
       : isGroup
-      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="group-details" data-id="' + h(item.id) + '">Состав и зрители</button><button class="button button-ghost tiny" data-action="group-add-member" data-id="' + h(item.id) + '"' + (item.organizerUid===state.uid?"":' style="display:none"') + '>+ Пригласить</button><button class="button button-subtle tiny" data-action="' + (item.organizerUid===state.uid?"group-cancel":"group-leave") + '" data-id="' + h(item.id) + '">' + (item.organizerUid===state.uid?"Отменить для всех":"Отказаться") + '</button></div>'
+      ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="group-details" data-id="' + h(item.id) + '">Состав и зрители</button>' +
+        (item.organizerUid===state.uid?'<button class="button tiny" data-action="move-group" data-id="'+h(item.id)+'">Перенести коллабу</button>':'')+
+        '<button class="button button-ghost tiny" data-action="group-add-member" data-id="' + h(item.id) + '"' + (item.organizerUid===state.uid?"":' style="display:none"') + '>+ Пригласить</button><button class="button button-subtle tiny" data-action="' + (item.organizerUid===state.uid?"group-cancel":"group-leave") + '" data-id="' + h(item.id) + '">' + (item.organizerUid===state.uid?"Отменить для всех":"Отказаться") + '</button></div>'
       : isLock
       ? '<div class="event-actions"><button class="button button-ghost tiny" data-action="visibility-collab" data-id="' + h(item.id) + '">Зрителям</button><button class="button button-ghost tiny" data-action="move-collab" data-id="' + h(item.id) + '">Перенести</button><button class="button button-subtle tiny" data-action="cancel-collab" data-id="' + h(item.id) + '">Отменить</button></div>'
       : '<div class="event-actions"><button class="button button-ghost tiny" data-action="edit-event" data-id="' + h(item.id) + '">Изменить</button><button class="button button-subtle tiny" data-action="delete-event" data-id="' + h(item.id) + '">Удалить</button></div>';
@@ -331,6 +334,43 @@ function groupJoinInvitationsHtml(){
       actions+'</article>';
   }).join("");
   return '<section class="panel" style="margin-bottom:20px"><h2>Дополнительные приглашения в коллабы</h2>'+cards+'</section>';
+}
+function moveGroupModal(id){
+  const group=state.groupCalendar.find(g=>g.id===id&&g.organizerUid===state.uid);
+  if(!group)throw new Error("Перенести групповую коллабу может только организатор.");
+  modalOpen('<h2 id="modalTitle">Перенести коллабу для всех</h2>'+
+    '<p class="sub">'+h(group.game)+' · '+(group.participants||[]).map(h).join(", ")+'</p>'+
+    '<p class="tiny-note">Сейчас: '+h(dateLabel(group.date))+' · '+fmtTime(group)+' МСК. Выбери новое время и нажми кнопку один раз: дата сразу изменится в календарях всех подтверждённых участников.</p>'+
+    '<form data-form="move-group" data-id="'+h(group.id)+'">'+
+    '<div class="form-grid">'+
+    '<div class="field"><label>Новая дата (МСК)</label><input name="date" type="date" value="'+h(group.date)+'" required></div>'+
+    '<div class="field"><label>Начало (МСК)</label><input name="start" type="time" value="'+h(group.start)+'" required></div>'+
+    '<div class="field"><label>Конец (МСК)</label><input name="end" type="time" value="'+h(group.end)+'" required></div>'+
+    '</div><p class="tiny-note">Состав и ручные гости сохраняются. Если у кого-то занято, появится предупреждение, но перенос можно продолжить. Уже опубликованные эфиры на Twitch и ожидающие ответа приглашения не переносятся автоматически.</p>'+
+    '<div class="form-actions"><button type="button" class="button button-ghost" data-action="close-modal">Отмена</button>'+
+    '<button class="button" type="submit">Перенести у всех</button></div></form>');
+}
+async function saveGroupMove(form){
+  const target={date:form.elements.date.value,start:form.elements.start.value,end:form.elements.end.value};
+  if(!validMoveWindow(target))throw new Error("Укажи существующую дату и корректное время (МСК).");
+  const snapshot=await freshMoveContext(db,form.dataset.id,state.uid);
+  if(snapshot.calendar.date===target.date&&snapshot.calendar.start===target.start&&snapshot.calendar.end===target.end)
+    throw new Error("Новое время совпадает с прежним.");
+  const conflicts=groupBookingConflicts(snapshot.group,target,snapshot);
+  if(conflicts.length){
+    const preview=conflicts.slice(0,8).map(c=>c.nick+" — "+c.label+
+      " ("+c.date+" "+c.start+"–"+c.end+" МСК)").join("\n");
+    if(!confirm("В новом времени есть пересечения:\n\n"+preview+
+      (conflicts.length>8?"\n…и ещё "+(conflicts.length-8):"")+
+      "\n\nВсё равно перенести коллабу всем участникам?"))return;
+  }
+  const result=await moveGroupForEveryone(db,snapshot,target,state.uid);
+  modalClose();
+  state.date=target.date;state.month=target.date.slice(0,7);
+  render();
+  flashMessage("Коллаба перенесена на "+dateLabel(target.date)+" · "+
+    target.start+"–"+target.end+" МСК у "+result.participants+
+    " участников. Другие события сохранены.");
 }
 function groupAddMemberModal(id){
   const group=state.groupsOrganized.find(g=>g.id===id);
@@ -1471,6 +1511,7 @@ document.addEventListener("click", async (event) => {
       $("wishRows")?.querySelectorAll(".wish-number").forEach((span, i) => { span.textContent = "Вариант " + (i + 1); });
       return;
     }
+    if(action==="move-group"){moveGroupModal(target.dataset.id);return;}
     if (action === "group-add-member"){
       groupAddMemberModal(target.dataset.id);return;
     }
@@ -1619,6 +1660,7 @@ document.addEventListener("submit", async (event) => {
     else if (state.authorized && type === "telegram-channel") await telegramChannelSave(form);
     else if (state.authorized && type === "party-add") await addPartyParticipants(form);
     else if (state.authorized && type === "group-guests") await saveGroupGuests(form);
+    else if(state.authorized&&type==="move-group")await saveGroupMove(form);
     else if (state.authorized && type === "group-add-member"){
       const group=state.groupsOrganized.find(g=>g.id===form.dataset.id);
       const member=state.members.find(m=>m.id===form.elements.memberUid.value);
