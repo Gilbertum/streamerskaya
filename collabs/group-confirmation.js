@@ -19,7 +19,8 @@ const slotDescription=item=>({
 })[item.type]||"Событие";
 
 export function groupBookingConflicts(group,chosen,{slots=[],locks=[],groups=[],members=[]}={}){
-  const ids=[...new Set([group.organizerUid,...(group.inviteeUids||[])])];
+  const gone=new Set(group.departedUids||[]);
+  const ids=[...new Set([group.organizerUid,...(group.inviteeUids||[]).filter(id=>!gone.has(id))])];
   const participants=new Set(ids);
   const names=new Map(members.map(m=>[m.id,m.nick]));
   if(!names.get(group.organizerUid))names.set(group.organizerUid,group.organizerName||"Организатор");
