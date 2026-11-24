@@ -14,7 +14,7 @@ const original={organizerUid:"owner",organizerName:"Xwaran",
   createdAt:Timestamp.now(),updatedAt:Timestamp.now()};
 
 test("only organizer moves the entire confirmed group, retaining guests, rosters and privacy",async()=>{
- const env=await initializeTestEnvironment({projectId:"demo-group-move",
+ const env=await initializeTestEnvironment({projectId:"demo-collab-room",
    firestore:{host:"127.0.0.1",port:8089,rules}});
  try{
   await env.withSecurityRulesDisabled(async ctx=>{
@@ -70,7 +70,7 @@ test("only organizer moves the entire confirmed group, retaining guests, rosters
 });
 
 test("accepted direct collab with two invitees moves atomically for everyone",async()=>{
- const env=await initializeTestEnvironment({projectId:"demo-direct-move",
+ const env=await initializeTestEnvironment({projectId:"demo-collab-room",
    firestore:{host:"127.0.0.1",port:8089,rules}});
  try{
   await env.withSecurityRulesDisabled(async ctx=>{
